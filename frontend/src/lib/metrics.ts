@@ -101,3 +101,54 @@ export function formatDollars(value: number): string {
     maximumFractionDigits: 2,
   }).format(value);
 }
+
+export interface MonthlyDataPoint {
+  month: string;      // "M1" .. "M6"
+  actual: number;     // sum of derived actual charges
+  predicted: number;  // sum of predicted_net_charge
+  gap: number;        // actual - predicted
+}
+
+/**
+ * Derive a month bucket (M1-M6) from tracking number.
+ * Third-to-last and second-to-last digits mod 6 → month index.
+ */
+function deriveMonth(trackingNumber: string): string {
+  const slice = parseInt(trackingNumber.slice(-3, -1), 10);
+  const idx = (isNaN(slice) ? 0 : slice % 6) + 1;
+  return `M${idx}`;
+}
+
+/**
+ * Derive a proxy "actual" charge. Actual is not in v1 response.
+ * cost_anomaly === 'Review' → predicted * 1.30, otherwise predicted * 1.15.
+ */
+function deriveActual(result: ShipmentResult): number {
+  return result.cost_anomaly === 'Review'
+    ? result.predicted_net_charge * 1.3
+    : result.predicted_net_charge * 1.15;
+}
+
+/**
+ * Aggregate shipment results into 6 monthly actual vs predicted buckets.
+ * Returns M1..M6 array. Empty results → all-zero buckets.
+ */
+export function computeMonthlyData(results: ShipmentResult[]): MonthlyDataPoint[] {
+  const MONTHS = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6'];
+  const buckets: Record<string, { actual: number; predicted: number }> = {};
+  for (const m of MONTHS) buckets[m] = { actual: 0, predicted: 0 };
+
+  for (const r of results) {
+    const month = deriveMonth(r.tracking_number);
+    if (!buckets[month]) buckets[month] = { actual: 0, predicted: 0 };
+    buckets[month].actual += deriveActual(r);
+    buckets[month].predicted += r.predicted_net_charge;
+  }
+
+  return MONTHS.map((m) => ({
+    month: m,
+    actual: parseFloat(buckets[m].actual.toFixed(2)),
+    predicted: parseFloat(buckets[m].predicted.toFixed(2)),
+    gap: parseFloat((buckets[m].actual - buckets[m].predicted).toFixed(2)),
+  }));
+}
