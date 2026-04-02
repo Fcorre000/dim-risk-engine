@@ -1,4 +1,6 @@
 import type { UploadState } from '../types/api';
+import UploadZone from '../components/upload/UploadZone';
+import UploadStatusCard from '../components/upload/UploadStatusCard';
 
 interface OverviewPageProps {
   uploadState: UploadState;
@@ -10,11 +12,18 @@ export default function OverviewPage({ uploadState, onUpload }: OverviewPageProp
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-semibold text-gray-100">Overview</h1>
-        <p className="text-gray-500 text-sm mt-1">Upload an invoice to analyze DIM billing anomalies</p>
+        <p className="text-gray-500 text-sm mt-1">
+          Upload a FedEx invoice to analyze DIM billing anomalies
+        </p>
       </div>
-      {/* Upload component slot — added in 02-03 */}
+
+      <UploadZone uploadState={uploadState} onUpload={onUpload} />
+
+      <UploadStatusCard uploadState={uploadState} />
+
       {/* KPI cards slot — added in 02-04 */}
-      {/* Charts slot — added in 02-04, 02-05 */}
+      {/* Zone chart slot — added in 02-04 */}
+      {/* Actual vs predicted chart slot — added in 02-05 */}
       {/* Anomaly table slot — added in 02-05 */}
     </div>
   );
