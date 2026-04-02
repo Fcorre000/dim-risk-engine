@@ -48,14 +48,14 @@ Plans:
   3. A horizontal Recharts bar chart shows DIM flag rate by pricing zone
   4. A grouped Recharts bar chart shows monthly actual vs predicted net charge with gap labeled
   5. An anomaly table shows Tracking #, Service, Dims, Weight, Zone, Actual $, Predicted $, and Flag badge; a dropdown filters to All / Unexpected / Review
-**Plans**: TBD
+**Plans:** 5 plans
 
 Plans:
-- [ ] 02-01: React + Vite + Tailwind + Recharts project setup — scaffold frontend/, configure Tailwind dark mode, verify dev server runs
-- [ ] 02-02: Dark-mode layout shell — sidebar navigation component (Overview, Anomalies, By Zone, By SKU, Trends, Export links), page router, responsive grid
-- [ ] 02-03: File upload component + API integration — drag-and-drop zone, file picker fallback, POST to /analyze, loading state, upload status card
-- [ ] 02-04: KPI cards + zone chart — compute summary metrics from response data, render four KPI cards, render horizontal bar chart (zone vs DIM rate)
-- [ ] 02-05: Actual vs predicted chart + anomaly table — grouped bar chart with gap label, filterable/paginated anomaly table with flag badges
+- [ ] 02-01-PLAN.md — React + Vite + TypeScript + Tailwind + Recharts scaffold; dark mode enabled; `npm run build` passes
+- [ ] 02-02-PLAN.md — Dark-mode layout shell: Sidebar (6 nav links), MainLayout (responsive lg:flex), API types (ShipmentResult, PageId, UploadState), page router in App.tsx
+- [ ] 02-03-PLAN.md — File upload: UploadZone (drag-and-drop + click, loading spinner, error state), UploadStatusCard (filename/count/time/Analyzed badge), real POST to /analyze
+- [ ] 02-04-PLAN.md — KPI cards + zone chart: metrics.ts (computeKpis, computeZoneData), KpiCard component, ZoneChart (horizontal Recharts BarChart layout=vertical)
+- [ ] 02-05-PLAN.md — Actual vs predicted chart + anomaly table: computeMonthlyData, ActualVsPredictedChart (grouped bars + gap LabelList), AnomalyTable (8 columns, filter dropdown, flag badges)
 
 **UI hint**: yes
 
