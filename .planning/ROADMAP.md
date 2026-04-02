@@ -51,11 +51,11 @@ Plans:
 **Plans:** 5 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — React + Vite + TypeScript + Tailwind + Recharts scaffold; dark mode enabled; `npm run build` passes
-- [ ] 02-02-PLAN.md — Dark-mode layout shell: Sidebar (6 nav links), MainLayout (responsive lg:flex), API types (ShipmentResult, PageId, UploadState), page router in App.tsx
-- [ ] 02-03-PLAN.md — File upload: UploadZone (drag-and-drop + click, loading spinner, error state), UploadStatusCard (filename/count/time/Analyzed badge), real POST to /analyze
-- [ ] 02-04-PLAN.md — KPI cards + zone chart: metrics.ts (computeKpis, computeZoneData), KpiCard component, ZoneChart (horizontal Recharts BarChart layout=vertical)
-- [ ] 02-05-PLAN.md — Actual vs predicted chart + anomaly table: computeMonthlyData, ActualVsPredictedChart (grouped bars + gap LabelList), AnomalyTable (8 columns, filter dropdown, flag badges)
+- [x] 02-01-PLAN.md — React + Vite + TypeScript + Tailwind + Recharts scaffold; dark mode enabled; `npm run build` passes
+- [x] 02-02-PLAN.md — Dark-mode layout shell: Sidebar (6 nav links), MainLayout (responsive lg:flex), API types (ShipmentResult, PageId, UploadState), page router in App.tsx
+- [x] 02-03-PLAN.md — File upload: UploadZone (drag-and-drop + click, loading spinner, error state), UploadStatusCard (filename/count/time/Analyzed badge), real POST to /analyze
+- [x] 02-04-PLAN.md — KPI cards + zone chart: metrics.ts (computeKpis, computeZoneData), KpiCard component, ZoneChart (horizontal Recharts BarChart layout=vertical)
+- [x] 02-05-PLAN.md — Actual vs predicted chart + anomaly table: computeMonthlyData, ActualVsPredictedChart (grouped bars + gap LabelList), AnomalyTable (8 columns, filter dropdown, flag badges)
 
 **UI hint**: yes
 
