@@ -1,9 +1,11 @@
 import type { UploadState } from '../types/api';
-import { computeKpis, computeZoneData, formatDollars } from '../lib/metrics';
+import { computeKpis, computeZoneData, computeMonthlyData, formatDollars } from '../lib/metrics';
 import UploadZone from '../components/upload/UploadZone';
 import UploadStatusCard from '../components/upload/UploadStatusCard';
 import KpiCard from '../components/kpi/KpiCard';
 import ZoneChart from '../components/charts/ZoneChart';
+import ActualVsPredictedChart from '../components/charts/ActualVsPredictedChart';
+import AnomalyTable from '../components/table/AnomalyTable';
 
 interface OverviewPageProps {
   uploadState: UploadState;
@@ -14,6 +16,7 @@ export default function OverviewPage({ uploadState, onUpload }: OverviewPageProp
   const results = uploadState.results ?? [];
   const kpis = computeKpis(results);
   const zoneData = computeZoneData(results);
+  const monthlyData = computeMonthlyData(results);
   const hasData = results.length > 0;
 
   return (
@@ -29,7 +32,7 @@ export default function OverviewPage({ uploadState, onUpload }: OverviewPageProp
 
       <UploadStatusCard uploadState={uploadState} />
 
-      {/* KPI cards — mobile-first responsive grid */}
+      {/* KPI cards — 4 columns on lg, 2 on sm, 1 on mobile */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           title="Total Shipments"
@@ -56,10 +59,13 @@ export default function OverviewPage({ uploadState, onUpload }: OverviewPageProp
         />
       </div>
 
-      <ZoneChart data={zoneData} />
+      {/* Charts row — 2 columns on lg, stacked on mobile */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ZoneChart data={zoneData} />
+        <ActualVsPredictedChart data={monthlyData} />
+      </div>
 
-      {/* Actual vs predicted chart slot — added in 02-05 */}
-      {/* Anomaly table slot — added in 02-05 */}
+      <AnomalyTable results={results} />
     </div>
   );
 }
