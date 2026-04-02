@@ -12,7 +12,7 @@ The project ships in five phases. Phase 1 delivers the backend inference API —
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Backend Inference API** - FastAPI + XGBoost inference endpoint that accepts file upload and returns per-shipment anomaly JSON
+- [x] **Phase 1: Backend Inference API** - FastAPI + XGBoost inference endpoint that accepts file upload and returns per-shipment anomaly JSON (completed 2026-04-02)
 - [ ] **Phase 2: Core Dashboard** - React/Tailwind dark-mode dashboard with file upload, KPI cards, charts, and anomaly table
 - [ ] **Phase 3: Detail Pages** - Anomalies, By Zone, and By SKU drill-down pages wired to sidebar navigation
 - [ ] **Phase 4: Trends + Export** - Month-over-month trend charts and dispute-candidate CSV export
@@ -30,13 +30,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Pricing Zone values are normalized ('2' -> '02', non-standard -> 'Other') before any model input
   4. Leakage columns "Shipment Rated Weight(Pounds)" and "Net Charge Billed Currency" never appear in model feature input
   5. A 5,000-row invoice returns a complete response in under one second (measured with curl or a test script)
-**Plans:** 4 plans
+**Plans:** 4/4 plans complete
 
 Plans:
 - [x] 01-01: FastAPI app skeleton — project structure, uvicorn startup, health check route, model loading at startup from models/
 - [x] 01-02: File ingestion + pandas parsing — multipart file upload, xlsx/csv detection, column extraction, zone normalization, leakage column stripping
 - [x] 01-03: Inference pipeline — feature assembly, classifier predict_proba, regressor predict + np.expm1, DIM anomaly logic, cost anomaly logic
-- [ ] 01-04: /analyze endpoint + response schema — wire ingestion to inference, define Pydantic response model, return JSON array, validate < 1s on 5k rows
+- [x] 01-04: /analyze endpoint + response schema — wire ingestion to inference, define Pydantic response model, return JSON array, validate < 1s on 5k rows
 
 ### Phase 2: Core Dashboard
 **Goal**: A working dark-mode React dashboard where the manager uploads an invoice and immediately sees KPI cards, zone chart, actual-vs-predicted chart, and a filterable anomaly table.
@@ -117,7 +117,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Backend Inference API | 0/4 | Not started | - |
+| 1. Backend Inference API | 4/4 | Complete   | 2026-04-02 |
 | 2. Core Dashboard | 0/5 | Not started | - |
 | 3. Detail Pages | 0/3 | Not started | - |
 | 4. Trends + Export | 0/2 | Not started | - |

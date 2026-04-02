@@ -18,7 +18,7 @@
 - [x] **INF-02**: xgb_regressor.pkl loaded once at startup, predicts net charge (log-space → np.expm1)
 - [x] **INF-03**: DIM anomaly flagged: model DIM=N probability > 0.6 AND FedEx charged DIM=Y → "Unexpected"
 - [x] **INF-04**: Cost anomaly flagged: actual charge > predicted × 1.25 → "Review"
-- [ ] **INF-05**: /analyze POST endpoint returns per-shipment JSON in < 1s for 5,000 rows
+- [x] **INF-05**: /analyze POST endpoint returns per-shipment JSON in < 1s for 5,000 rows
 
 ### Overview Dashboard
 
