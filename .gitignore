@@ -1,5 +1,6 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
+.claude
+.planning
 # dependencies
 /node_modules
 /.pnp
@@ -17,6 +18,10 @@
 
 # misc
 .DS_Store
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
 *.pem
 
 # debug
