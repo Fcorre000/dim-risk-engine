@@ -35,7 +35,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 Plans:
 - [x] 01-01: FastAPI app skeleton — project structure, uvicorn startup, health check route, model loading at startup from models/
 - [x] 01-02: File ingestion + pandas parsing — multipart file upload, xlsx/csv detection, column extraction, zone normalization, leakage column stripping
-- [ ] 01-03: Inference pipeline — feature assembly, classifier predict_proba, regressor predict + np.expm1, DIM anomaly logic, cost anomaly logic
+- [x] 01-03: Inference pipeline — feature assembly, classifier predict_proba, regressor predict + np.expm1, DIM anomaly logic, cost anomaly logic
 - [ ] 01-04: /analyze endpoint + response schema — wire ingestion to inference, define Pydantic response model, return JSON array, validate < 1s on 5k rows
 
 ### Phase 2: Core Dashboard
