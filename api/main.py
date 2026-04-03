@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import io
+import os
 import pathlib
 import pickle
 import time
@@ -19,7 +20,11 @@ warnings.filterwarnings("ignore", message=".*Booster.*", category=UserWarning)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    models_dir = pathlib.Path(__file__).parent.parent / "models"
+    model_path_env = os.environ.get("MODEL_PATH")
+    if model_path_env:
+        models_dir = pathlib.Path(model_path_env)
+    else:
+        models_dir = pathlib.Path(__file__).parent.parent / "models"
     with open(models_dir / "xgb_classifier.pkl", "rb") as f:
         app.state.clf = pickle.load(f)
     with open(models_dir / "xgb_regressor.pkl", "rb") as f:
@@ -29,9 +34,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="DimRisk Engine", lifespan=lifespan)
 
+_raw_origins = os.environ.get("CORS_ORIGINS", "*")
+_allow_origins = [o.strip() for o in _raw_origins.split(",")] if _raw_origins != "*" else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
