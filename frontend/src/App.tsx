@@ -5,6 +5,7 @@ import OverviewPage from './pages/OverviewPage';
 import AnomaliesPage from './pages/AnomaliesPage';
 import ByZonePage from './pages/ByZonePage';
 import BySkuPage from './pages/BySkuPage';
+import TrendsPage from './pages/TrendsPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 
 const INITIAL_UPLOAD_STATE: UploadState = {
@@ -89,7 +90,7 @@ export default function App() {
       case 'by-sku':
         return <BySkuPage uploadState={uploadState} />;
       case 'trends':
-        return <PlaceholderPage title="Trends" />;
+        return <TrendsPage uploadState={uploadState} />;
       case 'export':
         return <PlaceholderPage title="Export" />;
       default:

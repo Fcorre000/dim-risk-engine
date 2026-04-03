@@ -259,3 +259,44 @@ export function computeSkuData(results: ShipmentResult[]): SkuDataPoint[] {
     }))
     .sort((a, b) => b.gapTotal - a.gapTotal);
 }
+
+export interface TrendsDataPoint {
+  month: string;              // "M1" .. "M6"
+  actual: number;             // sum of actual_net_charge for this month bucket
+  predicted: number;          // sum of predicted_net_charge for this month bucket
+  gap: number;                // actual - predicted (positive = overcharge)
+  disputeCount: number;       // count of rows where dim_anomaly === 'Unexpected' in this bucket
+  cumulativeDisputes: number; // running total of dispute candidates up to and including this month
+}
+
+/**
+ * Aggregate shipment results into 6 monthly trend buckets.
+ * Uses same deriveMonth logic as computeMonthlyData (trackingNumber.slice(-3, -1) mod 6 + 1).
+ * Each point adds cumulativeDisputes — the running sum of dispute candidates month over month.
+ * Returns M1..M6 array always (empty months have zeros).
+ */
+export function computeTrendsData(results: ShipmentResult[]): TrendsDataPoint[] {
+  const MONTHS = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6'];
+  const buckets: Record<string, { actual: number; predicted: number; disputes: number }> = {};
+  for (const m of MONTHS) buckets[m] = { actual: 0, predicted: 0, disputes: 0 };
+
+  for (const r of results) {
+    const slice = parseInt(r.tracking_number.slice(-3, -1), 10);
+    const idx = (isNaN(slice) ? 0 : slice % 6) + 1;
+    const month = `M${idx}`;
+    if (!buckets[month]) buckets[month] = { actual: 0, predicted: 0, disputes: 0 };
+    buckets[month].actual += r.actual_net_charge;
+    buckets[month].predicted += r.predicted_net_charge;
+    if (r.dim_anomaly === 'Unexpected') buckets[month].disputes += 1;
+  }
+
+  let cumulative = 0;
+  return MONTHS.map((m) => {
+    const b = buckets[m];
+    const actual = parseFloat(b.actual.toFixed(2));
+    const predicted = parseFloat(b.predicted.toFixed(2));
+    const gap = parseFloat((b.actual - b.predicted).toFixed(2));
+    cumulative += b.disputes;
+    return { month: m, actual, predicted, gap, disputeCount: b.disputes, cumulativeDisputes: cumulative };
+  });
+}
