@@ -46,6 +46,12 @@ def parse_invoice(file_bytes: io.BytesIO, filename: str) -> pd.DataFrame:
     else:
         raise ValueError("Unsupported file type. Upload .xlsx or .csv")
 
+    # Normalize tracking number column — FedEx exports use different names
+    for alt in ("Shipment Tracking Number", "Master Tracking Number"):
+        if alt in df.columns and "Tracking Number" not in df.columns:
+            df = df.rename(columns={alt: "Tracking Number"})
+            break
+
     # Customs Value is optional — fill if missing
     if "Customs Value" not in df.columns:
         df["Customs Value"] = 0.0

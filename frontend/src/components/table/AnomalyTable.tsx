@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import type { ShipmentResult } from '../../types/api';
 import { formatDollars } from '../../lib/metrics';
 
@@ -8,11 +8,6 @@ interface AnomalyTableProps {
   results: ShipmentResult[];
 }
 
-function deriveActual(r: ShipmentResult): number {
-  return r.cost_anomaly === 'Review'
-    ? r.predicted_net_charge * 1.3
-    : r.predicted_net_charge * 1.15;
-}
 
 function deriveService(trackingNumber: string): string {
   const SERVICES = [
@@ -65,6 +60,64 @@ function FlagBadge({ dimAnomaly, costAnomaly }: FlagBadgeProps) {
   return null;
 }
 
+function FlagInfoPopover() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative inline-flex">
+      <button
+        type="button"
+        aria-label="Explain flag types"
+        onClick={() => setOpen((v) => !v)}
+        className="w-5 h-5 rounded-full flex items-center justify-center text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4" aria-hidden="true">
+          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          role="tooltip"
+          className="absolute right-0 top-7 z-50 w-72 rounded-xl bg-gray-800 border border-gray-700 shadow-xl p-4 text-xs"
+        >
+          <p className="text-gray-300 font-semibold mb-3">Flag types explained</p>
+
+          <div className="mb-3">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30 mb-1.5">
+              Unexpected
+            </span>
+            <p className="text-gray-400 leading-relaxed">
+              The model predicted FedEx would <em>not</em> apply DIM billing, but they charged DIM anyway.
+              These are your strongest dispute candidates — the algorithm disagrees with how FedEx rated the shipment.
+            </p>
+          </div>
+
+          <div>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30 mb-1.5">
+              Review
+            </span>
+            <p className="text-gray-400 leading-relaxed">
+              The actual charge was more than 25% above the model's predicted net charge.
+              May indicate a billing error or rate discrepancy worth investigating.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const PAGE_SIZE = 100;
 
 export default function AnomalyTable({ results }: AnomalyTableProps) {
@@ -110,6 +163,7 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <FlagInfoPopover />
           <label htmlFor="anomaly-filter" className="text-xs text-gray-500">
             Filter:
           </label>
@@ -153,9 +207,7 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
                 </td>
               </tr>
             ) : (
-              displayRows.map((row, idx) => {
-                const actual = deriveActual(row);
-                return (
+              displayRows.map((row, idx) => (
                   <tr
                     key={row.tracking_number}
                     className={[
@@ -180,7 +232,7 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
                       {deriveZone(row.tracking_number)}
                     </td>
                     <td className="px-4 py-3 text-gray-300 font-medium tabular-nums whitespace-nowrap">
-                      {formatDollars(actual)}
+                      {formatDollars(row.actual_net_charge)}
                     </td>
                     <td className="px-4 py-3 text-gray-400 tabular-nums whitespace-nowrap">
                       {formatDollars(row.predicted_net_charge)}
@@ -189,8 +241,7 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
                       <FlagBadge dimAnomaly={row.dim_anomaly} costAnomaly={row.cost_anomaly} />
                     </td>
                   </tr>
-                );
-              })
+              ))
             )}
           </tbody>
         </table>

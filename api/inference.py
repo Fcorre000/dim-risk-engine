@@ -82,6 +82,7 @@ def run_inference(df: pd.DataFrame, clf, reg) -> list:
         results.append({
             "tracking_number": str(df["Tracking Number"].iloc[i]),
             "dim_flag_probability": round(float(dim_proba_y[i]), 4),
+            "actual_net_charge": round(float(actual_charges.iloc[i]), 2),
             "predicted_net_charge": round(float(predicted_charge[i]), 2),
             "dim_anomaly": anomaly_flags[i]["dim_anomaly"],
             "cost_anomaly": anomaly_flags[i]["cost_anomaly"],

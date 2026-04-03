@@ -41,6 +41,7 @@ app.add_middleware(
 class ShipmentResult(BaseModel):
     tracking_number: str
     dim_flag_probability: float    # P(DIM=Y), 0.0-1.0
+    actual_net_charge: float       # dollars, from Net Charge Billed Currency column
     predicted_net_charge: float    # dollars, after np.expm1()
     dim_anomaly: Optional[str]     # "Unexpected" or None
     cost_anomaly: Optional[str]    # "Review" or None
