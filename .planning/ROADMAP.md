@@ -85,11 +85,11 @@ Plans:
   1. The Trends page shows a month-over-month line chart of actual vs predicted net charge
   2. The Trends page shows a running dispute candidate count over time
   3. Clicking the Export button (on Overview or the Export page) downloads a CSV with columns: Tracking #, Flag type, Actual $, Predicted $, Gap $
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 04-01: Trends page — derive monthly buckets from response data, render actual vs predicted line chart and dispute candidate count line chart using Recharts
-- [ ] 04-02: Export page + CSV download — aggregate dispute candidates, generate CSV client-side, trigger browser download via Blob/URL.createObjectURL
+- [ ] 04-01-PLAN.md — Trends page: computeTrendsData in metrics.ts, TrendsChart (two Recharts line charts: charge trends + dispute count with cumulative), TrendsPage, App.tsx wired
+- [ ] 04-02-PLAN.md — Export page + CSV download: export.ts (getDisputeCandidates, generateDisputeCandidatesCsv, downloadCsv), ExportPage with candidate table + Download CSV button, App.tsx wired
 
 **UI hint**: yes
 
