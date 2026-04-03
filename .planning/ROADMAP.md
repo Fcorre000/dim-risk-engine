@@ -103,12 +103,12 @@ Plans:
   3. CORS is configured so the frontend origin is allowed; all secrets are in environment variables, none hardcoded
   4. Uploading a 5,000-row invoice through the live production UI returns results in under one second
   5. An end-to-end smoke test (upload sample invoice, verify anomaly table populates, verify KPI cards show non-zero values) passes without errors
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 05-01: Backend deployment — render.yaml or Railway config, env var setup (MODEL_PATH, CORS_ORIGINS), gunicorn/uvicorn worker config, health check route
-- [ ] 05-02: Frontend deployment — Vite production build, static site deploy config, VITE_API_URL env var pointing to live backend
-- [ ] 05-03: Performance + smoke test — run 5k-row upload against production URL, measure response time, run manual end-to-end check, document results
+- [ ] 05-01-PLAN.md — Backend deployment: render.yaml web service, env-var CORS_ORIGINS + MODEL_PATH, uvicorn --host 0.0.0.0 --port $PORT, /health check
+- [ ] 05-02-PLAN.md — Frontend deployment: VITE_API_URL wired into API calls, npm run build passes, render.yaml static site entry with SPA rewrite route
+- [ ] 05-03-PLAN.md — Performance + smoke test: scripts/smoke_test.py, 5k-row upload < 1s (warm), end-to-end UI check, RESULTS.md documented
 
 ## Progress
 
