@@ -3,6 +3,7 @@ import type { PageId, UploadState } from './types/api';
 import MainLayout from './components/layout/MainLayout';
 import OverviewPage from './pages/OverviewPage';
 import AnomaliesPage from './pages/AnomaliesPage';
+import ByZonePage from './pages/ByZonePage';
 import PlaceholderPage from './pages/PlaceholderPage';
 
 const INITIAL_UPLOAD_STATE: UploadState = {
@@ -83,7 +84,7 @@ export default function App() {
       case 'anomalies':
         return <AnomaliesPage uploadState={uploadState} />;
       case 'by-zone':
-        return <PlaceholderPage title="By Zone" />;
+        return <ByZonePage uploadState={uploadState} />;
       case 'by-sku':
         return <PlaceholderPage title="By SKU" />;
       case 'trends':

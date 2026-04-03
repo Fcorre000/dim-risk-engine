@@ -142,3 +142,57 @@ export function computeMonthlyData(results: ShipmentResult[]): MonthlyDataPoint[
     gap: parseFloat((buckets[m].actual - buckets[m].predicted).toFixed(2)),
   }));
 }
+
+export interface ZoneDetailPoint {
+  zone: string;
+  dimRate: number;
+  count: number;
+  actualTotal: number;
+  predictedTotal: number;
+  gapTotal: number;
+  unexpected: number;
+}
+
+/**
+ * Compute per-zone statistics including actual/predicted totals and gap.
+ * Extends computeZoneData with financial summary per zone.
+ * Returns array sorted by gapTotal descending (highest overcharge zone first).
+ */
+export function computeZoneDetails(results: ShipmentResult[]): ZoneDetailPoint[] {
+  if (results.length === 0) return [];
+
+  const zoneMap: Record<string, {
+    total: number;
+    dimFlagged: number;
+    actual: number;
+    predicted: number;
+    unexpected: number;
+  }> = {};
+
+  for (const r of results) {
+    const lastTwo = parseInt(r.tracking_number.slice(-2), 10);
+    const zoneNum = (isNaN(lastTwo) ? 0 : lastTwo % 8) + 2;
+    const zone = String(zoneNum).padStart(2, '0');
+
+    if (!zoneMap[zone]) {
+      zoneMap[zone] = { total: 0, dimFlagged: 0, actual: 0, predicted: 0, unexpected: 0 };
+    }
+    zoneMap[zone].total += 1;
+    if (r.dim_flag_probability > 0.5) zoneMap[zone].dimFlagged += 1;
+    zoneMap[zone].actual += r.actual_net_charge;
+    zoneMap[zone].predicted += r.predicted_net_charge;
+    if (r.dim_anomaly === 'Unexpected') zoneMap[zone].unexpected += 1;
+  }
+
+  return Object.entries(zoneMap)
+    .map(([zone, d]) => ({
+      zone,
+      dimRate: parseFloat(((d.dimFlagged / d.total) * 100).toFixed(1)),
+      count: d.total,
+      actualTotal: parseFloat(d.actual.toFixed(2)),
+      predictedTotal: parseFloat(d.predicted.toFixed(2)),
+      gapTotal: parseFloat((d.actual - d.predicted).toFixed(2)),
+      unexpected: d.unexpected,
+    }))
+    .sort((a, b) => b.gapTotal - a.gapTotal);
+}
