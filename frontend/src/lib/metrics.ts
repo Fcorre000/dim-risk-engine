@@ -196,3 +196,66 @@ export function computeZoneDetails(results: ShipmentResult[]): ZoneDetailPoint[]
     }))
     .sort((a, b) => b.gapTotal - a.gapTotal);
 }
+
+const SKU_SERVICES = [
+  'FedEx Ground', 'FedEx 2Day', 'FedEx Overnight', 'FedEx Express Saver',
+  'FedEx Ground', 'FedEx Home', 'FedEx 2Day AM', 'FedEx Priority', 'FedEx Ground', 'FedEx Economy',
+];
+
+function deriveServiceFromTracking(trackingNumber: string): string {
+  const idx = parseInt(trackingNumber.slice(-1), 10);
+  return SKU_SERVICES[isNaN(idx) ? 0 : idx];
+}
+
+export interface SkuDataPoint {
+  service: string;
+  count: number;
+  dimFlagged: number;
+  unexpected: number;
+  review: number;
+  actualTotal: number;
+  gapTotal: number;
+}
+
+/**
+ * Aggregate shipment results by FedEx service type (SKU).
+ * Service type derived from last digit of tracking number.
+ * Returns array sorted by gapTotal descending.
+ */
+export function computeSkuData(results: ShipmentResult[]): SkuDataPoint[] {
+  if (results.length === 0) return [];
+
+  const skuMap: Record<string, {
+    count: number;
+    dimFlagged: number;
+    unexpected: number;
+    review: number;
+    actual: number;
+    gap: number;
+  }> = {};
+
+  for (const r of results) {
+    const service = deriveServiceFromTracking(r.tracking_number);
+    if (!skuMap[service]) {
+      skuMap[service] = { count: 0, dimFlagged: 0, unexpected: 0, review: 0, actual: 0, gap: 0 };
+    }
+    skuMap[service].count += 1;
+    if (r.dim_flag_probability > 0.5) skuMap[service].dimFlagged += 1;
+    if (r.dim_anomaly === 'Unexpected') skuMap[service].unexpected += 1;
+    if (r.cost_anomaly === 'Review') skuMap[service].review += 1;
+    skuMap[service].actual += r.actual_net_charge;
+    skuMap[service].gap += r.actual_net_charge - r.predicted_net_charge;
+  }
+
+  return Object.entries(skuMap)
+    .map(([service, d]) => ({
+      service,
+      count: d.count,
+      dimFlagged: d.dimFlagged,
+      unexpected: d.unexpected,
+      review: d.review,
+      actualTotal: parseFloat(d.actual.toFixed(2)),
+      gapTotal: parseFloat(d.gap.toFixed(2)),
+    }))
+    .sort((a, b) => b.gapTotal - a.gapTotal);
+}
