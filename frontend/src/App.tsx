@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { PageId, UploadState } from './types/api';
 import MainLayout from './components/layout/MainLayout';
 import OverviewPage from './pages/OverviewPage';
+import AnomaliesPage from './pages/AnomaliesPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 
 const INITIAL_UPLOAD_STATE: UploadState = {
@@ -80,7 +81,7 @@ export default function App() {
       case 'overview':
         return <OverviewPage uploadState={uploadState} onUpload={handleUpload} />;
       case 'anomalies':
-        return <PlaceholderPage title="Anomalies" />;
+        return <AnomaliesPage uploadState={uploadState} />;
       case 'by-zone':
         return <PlaceholderPage title="By Zone" />;
       case 'by-sku':
