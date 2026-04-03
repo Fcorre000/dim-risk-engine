@@ -4,6 +4,7 @@ import MainLayout from './components/layout/MainLayout';
 import OverviewPage from './pages/OverviewPage';
 import AnomaliesPage from './pages/AnomaliesPage';
 import ByZonePage from './pages/ByZonePage';
+import BySkuPage from './pages/BySkuPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 
 const INITIAL_UPLOAD_STATE: UploadState = {
@@ -86,7 +87,7 @@ export default function App() {
       case 'by-zone':
         return <ByZonePage uploadState={uploadState} />;
       case 'by-sku':
-        return <PlaceholderPage title="By SKU" />;
+        return <BySkuPage uploadState={uploadState} />;
       case 'trends':
         return <PlaceholderPage title="Trends" />;
       case 'export':
