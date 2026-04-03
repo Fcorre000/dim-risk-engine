@@ -6,7 +6,7 @@ import AnomaliesPage from './pages/AnomaliesPage';
 import ByZonePage from './pages/ByZonePage';
 import BySkuPage from './pages/BySkuPage';
 import TrendsPage from './pages/TrendsPage';
-import PlaceholderPage from './pages/PlaceholderPage';
+import ExportPage from './pages/ExportPage';
 
 const INITIAL_UPLOAD_STATE: UploadState = {
   status: 'idle',
@@ -92,9 +92,9 @@ export default function App() {
       case 'trends':
         return <TrendsPage uploadState={uploadState} />;
       case 'export':
-        return <PlaceholderPage title="Export" />;
+        return <ExportPage uploadState={uploadState} />;
       default:
-        return <PlaceholderPage title="Page Not Found" />;
+        return null;
     }
   };
 
