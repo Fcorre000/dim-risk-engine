@@ -1,7 +1,8 @@
 export interface ShipmentResult {
   tracking_number: string;
   dim_flag_probability: number;   // 0.0 to 1.0
-  predicted_net_charge: number;   // dollars
+  actual_net_charge: number;      // dollars, from invoice
+  predicted_net_charge: number;   // dollars, model output
   dim_anomaly: 'Unexpected' | null;
   cost_anomaly: 'Review' | null;
 }

@@ -52,9 +52,9 @@ export default function OverviewPage({ uploadState, onUpload }: OverviewPageProp
           accent={hasData && kpis.disputeCandidates > 0 ? 'rose' : 'default'}
         />
         <KpiCard
-          title="Est. Recoverable"
+          title="Recoverable"
           value={hasData ? formatDollars(kpis.estRecoverable) : '—'}
-          subtitle={hasData ? 'from Unexpected DIM rows' : 'Upload an invoice'}
+          subtitle={hasData ? 'actual − predicted for Unexpected rows' : 'Upload an invoice'}
           accent={hasData && kpis.estRecoverable > 0 ? 'emerald' : 'default'}
         />
       </div>

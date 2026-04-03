@@ -24,16 +24,16 @@ interface CustomTooltipProps {
 
 function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   if (!active || !payload?.length) return null;
-  const actual = payload.find((p) => p.name === 'Actual')?.value ?? 0;
-  const predicted = payload.find((p) => p.name === 'Predicted')?.value ?? 0;
+  const actual = payload.find((p) => p.name === 'FedEx Billed')?.value ?? 0;
+  const predicted = payload.find((p) => p.name === 'Model Predicted')?.value ?? 0;
   const gap = actual - predicted;
   return (
     <div className="rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-xs shadow-lg">
       <p className="font-semibold text-gray-100 mb-1.5">{label}</p>
-      <p className="text-blue-400">Actual: {formatDollars(actual)}</p>
-      <p className="text-gray-400">Predicted: {formatDollars(predicted)}</p>
+      <p className="text-blue-400">FedEx Billed: {formatDollars(actual)}</p>
+      <p className="text-gray-400">Model Predicted: {formatDollars(predicted)}</p>
       {gap > 0 && (
-        <p className="text-rose-400 mt-1 font-medium">Gap: +{formatDollars(gap)}</p>
+        <p className="text-rose-400 mt-1 font-medium">Potential savings: +{formatDollars(gap)}</p>
       )}
     </div>
   );
@@ -75,8 +75,12 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
 
   return (
     <div className="rounded-xl bg-gray-900 border border-gray-800 px-6 py-5">
-      <h2 className="text-sm font-semibold text-gray-100 mb-1">Actual vs Predicted Net Charge</h2>
-      <p className="text-xs text-gray-500 mb-4">Monthly comparison — gap labels show overcharge amount</p>
+      <h2 className="text-sm font-semibold text-gray-100 mb-1">FedEx Billed vs Model Prediction</h2>
+      <p className="text-xs text-gray-500 mb-4">
+        Gap labels show how much FedEx charged above what the model predicted.{' '}
+        Positive gap = potential savings if anomalies are disputed.{' '}
+        <span className="text-gray-600">Monthly buckets are synthetic (shipment date not in invoice response).</span>
+      </p>
       <ResponsiveContainer width="100%" height={280}>
         <BarChart
           data={data}
@@ -99,10 +103,10 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
           />
           <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
           <Legend wrapperStyle={{ fontSize: '12px', color: '#9CA3AF', paddingTop: '8px' }} />
-          <Bar dataKey="actual" name="Actual" fill="#3b82f6" radius={[3, 3, 0, 0]} maxBarSize={32}>
+          <Bar dataKey="actual" name="FedEx Billed" fill="#3b82f6" radius={[3, 3, 0, 0]} maxBarSize={32}>
             <LabelList dataKey="gap" content={<GapLabel />} />
           </Bar>
-          <Bar dataKey="predicted" name="Predicted" fill="#4b5563" radius={[3, 3, 0, 0]} maxBarSize={32} />
+          <Bar dataKey="predicted" name="Model Predicted" fill="#4b5563" radius={[3, 3, 0, 0]} maxBarSize={32} />
         </BarChart>
       </ResponsiveContainer>
     </div>

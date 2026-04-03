@@ -49,11 +49,10 @@ export function computeKpis(results: ShipmentResult[]): KpiData {
   // Dispute candidates: rows where DIM anomaly is Unexpected
   const disputeCandidates = results.filter((r) => r.dim_anomaly === 'Unexpected').length;
 
-  // Estimated recoverable: for Unexpected DIM rows, use 10% of predicted as gap proxy
-  // (conservative — real gap = actual - predicted, but actual charge is not in v1 response)
+  // Recoverable: for Unexpected DIM rows, gap = actual billed - model predicted
   const estRecoverable = results
     .filter((r) => r.dim_anomaly === 'Unexpected')
-    .reduce((sum, r) => sum + r.predicted_net_charge * 0.1, 0);
+    .reduce((sum, r) => sum + Math.max(0, r.actual_net_charge - r.predicted_net_charge), 0);
 
   return {
     totalShipments,
@@ -104,14 +103,15 @@ export function formatDollars(value: number): string {
 
 export interface MonthlyDataPoint {
   month: string;      // "M1" .. "M6"
-  actual: number;     // sum of derived actual charges
-  predicted: number;  // sum of predicted_net_charge
+  actual: number;     // sum of actual_net_charge from invoice
+  predicted: number;  // sum of predicted_net_charge from model
   gap: number;        // actual - predicted
 }
 
 /**
  * Derive a month bucket (M1-M6) from tracking number.
  * Third-to-last and second-to-last digits mod 6 → month index.
+ * (Invoice date not in API response — synthetic bucketing for demo.)
  */
 function deriveMonth(trackingNumber: string): string {
   const slice = parseInt(trackingNumber.slice(-3, -1), 10);
@@ -120,18 +120,8 @@ function deriveMonth(trackingNumber: string): string {
 }
 
 /**
- * Derive a proxy "actual" charge. Actual is not in v1 response.
- * cost_anomaly === 'Review' → predicted * 1.30, otherwise predicted * 1.15.
- */
-function deriveActual(result: ShipmentResult): number {
-  return result.cost_anomaly === 'Review'
-    ? result.predicted_net_charge * 1.3
-    : result.predicted_net_charge * 1.15;
-}
-
-/**
  * Aggregate shipment results into 6 monthly actual vs predicted buckets.
- * Returns M1..M6 array. Empty results → all-zero buckets.
+ * Uses real actual_net_charge from invoice. Returns M1..M6 array.
  */
 export function computeMonthlyData(results: ShipmentResult[]): MonthlyDataPoint[] {
   const MONTHS = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6'];
@@ -141,7 +131,7 @@ export function computeMonthlyData(results: ShipmentResult[]): MonthlyDataPoint[
   for (const r of results) {
     const month = deriveMonth(r.tracking_number);
     if (!buckets[month]) buckets[month] = { actual: 0, predicted: 0 };
-    buckets[month].actual += deriveActual(r);
+    buckets[month].actual += r.actual_net_charge;
     buckets[month].predicted += r.predicted_net_charge;
   }
 

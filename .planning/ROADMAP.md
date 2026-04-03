@@ -68,12 +68,12 @@ Plans:
   2. Clicking "By Zone" shows DIM flag rate per pricing zone and cost gap (actual minus predicted) per zone
   3. Clicking "By SKU" shows anomaly statistics aggregated by service type
   4. All three pages use the same dark-mode layout and Tailwind styling as the Overview page
-**Plans**: TBD
+**Plans**: 0/3 plans complete
 
 Plans:
-- [ ] 03-01: Anomalies page — filtered table rendering only flagged rows, column sort controls for flag type / actual $ / gap $
-- [ ] 03-02: By Zone page — per-zone DIM flag rate table/chart and cost gap per zone table/chart
-- [ ] 03-03: By SKU page — service-type aggregation table with anomaly counts and total gap $
+- [ ] 03-01-PLAN.md — Anomalies page: sortable full-page table of all flagged rows (9 columns: Tracking #, Service, Dims, Weight, Zone, Actual $, Predicted $, Gap $, Flag)
+- [ ] 03-02-PLAN.md — By Zone page: computeZoneDetails in metrics.ts, ZoneChart reuse + zone stats table with actual/predicted/gap per zone
+- [ ] 03-03-PLAN.md — By SKU page: computeSkuData in metrics.ts, service-type aggregation table with anomaly counts and total gap $
 
 **UI hint**: yes
 
