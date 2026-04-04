@@ -98,6 +98,7 @@ async def analyze_stream(request: Request, file: UploadFile = File(...)):
     def generate():
         yield _json.dumps({"__meta__": True, "total": total}) + "\n"
         try:
+            file.file.seek(0)
             for chunk in parse_invoice_chunks(file.file, filename, chunksize=1000):
                 for row in run_inference(chunk, clf, reg):
                     yield _json.dumps(row) + "\n"
