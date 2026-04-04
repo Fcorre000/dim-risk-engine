@@ -84,13 +84,15 @@ export default function App() {
               continue;
             }
             allResults.push(obj);
-            // Update UI every 200 rows so the progress bar feels responsive
+            // Update UI every 200 rows — await rAF so React actually renders
+            // each step even when all data arrives in a single read() burst
             if (allResults.length % 200 === 0) {
               setUploadState(prev => ({
                 ...prev,
                 shipmentCount: allResults.length,
                 results: [...allResults],
               }));
+              await new Promise(resolve => requestAnimationFrame(resolve));
             }
           } catch { /* skip malformed lines */ }
         }
