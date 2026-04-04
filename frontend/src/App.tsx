@@ -38,14 +38,12 @@ export default function App() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${BASE_URL}/analyze`, {
+      const response = await fetch(`${BASE_URL}/analyze/stream`, {
         method: 'POST',
         body: formData,
       });
 
-      const elapsed = performance.now() - startTime;
-
-      if (!response.ok) {
+      if (!response.ok || !response.body) {
         const errorBody = await response.json().catch(() => ({ detail: 'Upload failed' }));
         setUploadState({
           status: 'error',
@@ -58,14 +56,43 @@ export default function App() {
         return;
       }
 
-      const results = await response.json();
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const allResults: import('./types/api').ShipmentResult[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const obj = JSON.parse(line);
+            if (obj.__meta__) continue;
+            allResults.push(obj);
+            // Update UI every 500 rows so large files show progress
+            if (allResults.length % 500 === 0) {
+              setUploadState(prev => ({
+                ...prev,
+                shipmentCount: allResults.length,
+                results: [...allResults],
+              }));
+            }
+          } catch { /* skip malformed lines */ }
+        }
+      }
 
       setUploadState({
         status: 'complete',
         filename: file.name,
-        shipmentCount: results.length,
-        analysisTimeMs: Math.round(elapsed),
-        results,
+        shipmentCount: allResults.length,
+        analysisTimeMs: Math.round(performance.now() - startTime),
+        results: allResults,
         errorMessage: null,
       });
     } catch {
