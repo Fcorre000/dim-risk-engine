@@ -94,10 +94,16 @@ export default function UploadZone({ uploadState, onUpload }: UploadZoneProps) {
         <div className="flex flex-col items-center gap-3 w-full px-2">
           {/* Progress bar */}
           {(() => {
-            const pct =
-              uploadState.totalCount != null && uploadState.shipmentCount != null
-                ? Math.min(Math.round((uploadState.shipmentCount / uploadState.totalCount) * 100), 99)
-                : null;
+            const { totalCount, shipmentCount } = uploadState;
+            // totalCount null → XLSX or unknown → indeterminate full-width shimmer
+            // totalCount known → deterministic fill starting at 0%
+            const indeterminate = totalCount == null;
+            const pct = indeterminate
+              ? null
+              : shipmentCount != null
+                ? Math.min(Math.round((shipmentCount / totalCount) * 100), 99)
+                : 0;
+
             return (
               <div
                 role="progressbar"
@@ -108,12 +114,13 @@ export default function UploadZone({ uploadState, onUpload }: UploadZoneProps) {
                 aria-busy="true"
                 className="relative w-full h-1.5 rounded-full bg-gray-800 overflow-hidden"
               >
-                {/* Fill — grows from left as rows stream in; full-width when total unknown */}
                 <div
-                  className="absolute inset-y-0 left-0 rounded-full bg-blue-700 overflow-hidden transition-[width] duration-300 ease-out"
-                  style={{ width: pct != null ? `${pct}%` : '100%' }}
+                  className="absolute inset-y-0 left-0 rounded-full bg-blue-700 overflow-hidden"
+                  style={{
+                    width: indeterminate ? '100%' : `${pct}%`,
+                    transition: 'width 300ms ease-out',
+                  }}
                 >
-                  {/* Shimmer sweep inside the fill so it's clipped to filled area */}
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-300/50 to-transparent animate-shimmer" />
                 </div>
               </div>
