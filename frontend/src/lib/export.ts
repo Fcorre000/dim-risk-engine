@@ -18,14 +18,14 @@ export function getDisputeCandidates(results: ShipmentResult[]): ShipmentResult[
  * Returns a string with CRLF line endings per RFC 4180.
  */
 export function generateDisputeCandidatesCsv(candidates: ShipmentResult[]): string {
-  const HEADER = 'Tracking #,Flag type,Actual $,Predicted $,Gap $';
+  const HEADER = 'Tracking #,Service,Dims (LxWxH),Weight (lbs),Zone,Flag type,Actual $,Predicted $,Gap $';
   const rows = candidates.map((r) => {
     const flagType = r.dim_anomaly ?? r.cost_anomaly ?? '';
+    const dims = `${r.dim_length}x${r.dim_width}x${r.dim_height}`;
     const actual = r.actual_net_charge.toFixed(2);
     const predicted = r.predicted_net_charge.toFixed(2);
     const gap = (r.actual_net_charge - r.predicted_net_charge).toFixed(2);
-    // Wrap tracking number in quotes in case it contains commas
-    return `"${r.tracking_number}",${flagType},${actual},${predicted},${gap}`;
+    return `"${r.tracking_number}",${r.service_type},${dims},${r.weight_lbs},${r.zone},${flagType},${actual},${predicted},${gap}`;
   });
   return [HEADER, ...rows].join('\r\n');
 }

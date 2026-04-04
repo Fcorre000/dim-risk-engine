@@ -50,6 +50,13 @@ app.add_middleware(
 
 class ShipmentResult(BaseModel):
     tracking_number: str
+    service_type: str              # e.g. "FO", "SG", "PO"
+    weight_lbs: float              # Original Weight (Pounds)
+    dim_length: float              # Dimmed Length (in)
+    dim_width: float               # Dimmed Width (in)
+    dim_height: float              # Dimmed Height (in)
+    zone: str                      # Pricing Zone, normalized ("02", "Other")
+    shipment_date: Optional[str]   # "YYYY-MM-DD" or null if not in source
     dim_flag_probability: float    # P(DIM=Y), 0.0-1.0
     actual_net_charge: float       # dollars, from Net Charge Billed Currency column
     predicted_net_charge: float    # dollars, after np.expm1()
