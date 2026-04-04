@@ -78,37 +78,40 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
       <h2 className="text-sm font-semibold text-gray-100 mb-1">FedEx Billed vs Model Prediction</h2>
       <p className="text-xs text-gray-500 mb-4">
         Gap labels show how much FedEx charged above what the model predicted.{' '}
-        Positive gap = potential savings if anomalies are disputed.{' '}
-        <span className="text-gray-600">Monthly buckets are synthetic (shipment date not in invoice response).</span>
+        Positive gap = potential savings if anomalies are disputed.
       </p>
-      <ResponsiveContainer width="100%" height={280}>
-        <BarChart
-          data={data}
-          margin={{ top: 24, right: 16, bottom: 0, left: 16 }}
-          barCategoryGap="30%"
-          barGap={2}
-        >
-          <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-          <XAxis
-            dataKey="month"
-            tick={{ fill: '#9CA3AF', fontSize: 12 }}
-            axisLine={{ stroke: '#374151' }}
-            tickLine={false}
-          />
-          <YAxis
-            tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-            tick={{ fill: '#9CA3AF', fontSize: 11 }}
-            axisLine={false}
-            tickLine={false}
-          />
-          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-          <Legend wrapperStyle={{ fontSize: '12px', color: '#9CA3AF', paddingTop: '8px' }} />
-          <Bar dataKey="actual" name="FedEx Billed" fill="#3b82f6" radius={[3, 3, 0, 0]} maxBarSize={32}>
-            <LabelList dataKey="gap" content={<GapLabel />} />
-          </Bar>
-          <Bar dataKey="predicted" name="Model Predicted" fill="#4b5563" radius={[3, 3, 0, 0]} maxBarSize={32} />
-        </BarChart>
-      </ResponsiveContainer>
+      <div className="overflow-x-auto">
+        <div style={{ minWidth: Math.max(400, data.length * 80) }}>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart
+              data={data}
+              margin={{ top: 24, right: 16, bottom: 0, left: 16 }}
+              barCategoryGap="30%"
+              barGap={2}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+              <XAxis
+                dataKey="month"
+                tick={{ fill: '#9CA3AF', fontSize: 12 }}
+                axisLine={{ stroke: '#374151' }}
+                tickLine={false}
+              />
+              <YAxis
+                tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+              <Legend wrapperStyle={{ fontSize: '12px', color: '#9CA3AF', paddingTop: '8px' }} />
+              <Bar dataKey="actual" name="FedEx Billed" fill="#3b82f6" radius={[3, 3, 0, 0]} maxBarSize={32}>
+                <LabelList dataKey="gap" content={<GapLabel />} />
+              </Bar>
+              <Bar dataKey="predicted" name="Model Predicted" fill="#4b5563" radius={[3, 3, 0, 0]} maxBarSize={32} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
     </div>
   );
 }

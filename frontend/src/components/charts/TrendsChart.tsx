@@ -68,52 +68,55 @@ export default function TrendsChart({ data }: TrendsChartProps) {
           Actual vs Predicted Charge — Month Over Month
         </h2>
         <p className="text-xs text-gray-500 mb-4">
-          FedEx billed vs model prediction per monthly bucket. Rising gap signals increasing overcharges.{' '}
-          <span className="text-gray-600">Monthly buckets are synthetic (shipment date not in invoice response).</span>
+          FedEx billed vs model prediction per monthly bucket. Rising gap signals increasing overcharges.
         </p>
         {!hasData ? (
           <div className="h-[280px] flex items-center justify-center">
             <p className="text-sm text-gray-500">Upload an invoice to see charge trends</p>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={data} margin={{ top: 16, right: 16, bottom: 0, left: 16 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-              <XAxis
-                dataKey="month"
-                tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                axisLine={{ stroke: '#374151' }}
-                tickLine={false}
-              />
-              <YAxis
-                tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-                tick={{ fill: '#9CA3AF', fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip content={<ChargeTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.08)' }} />
-              <Legend wrapperStyle={{ fontSize: '12px', color: '#9CA3AF', paddingTop: '8px' }} />
-              <Line
-                type="monotone"
-                dataKey="actual"
-                name="FedEx Billed"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                dot={{ fill: '#3b82f6', r: 3 }}
-                activeDot={{ r: 5 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="predicted"
-                name="Model Predicted"
-                stroke="#6b7280"
-                strokeWidth={2}
-                strokeDasharray="4 4"
-                dot={{ fill: '#6b7280', r: 3 }}
-                activeDot={{ r: 5 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          <div className="overflow-x-auto">
+            <div style={{ minWidth: Math.max(400, data.length * 80) }}>
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart data={data} margin={{ top: 16, right: 16, bottom: 0, left: 16 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
+                    axisLine={{ stroke: '#374151' }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip content={<ChargeTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.08)' }} />
+                  <Legend wrapperStyle={{ fontSize: '12px', color: '#9CA3AF', paddingTop: '8px' }} />
+                  <Line
+                    type="monotone"
+                    dataKey="actual"
+                    name="FedEx Billed"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    dot={{ fill: '#3b82f6', r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="predicted"
+                    name="Model Predicted"
+                    stroke="#6b7280"
+                    strokeWidth={2}
+                    strokeDasharray="4 4"
+                    dot={{ fill: '#6b7280', r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         )}
       </div>
 
@@ -130,44 +133,48 @@ export default function TrendsChart({ data }: TrendsChartProps) {
             <p className="text-sm text-gray-500">Upload an invoice to see dispute trends</p>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={data} margin={{ top: 16, right: 16, bottom: 0, left: 16 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-              <XAxis
-                dataKey="month"
-                tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                axisLine={{ stroke: '#374151' }}
-                tickLine={false}
-              />
-              <YAxis
-                allowDecimals={false}
-                tick={{ fill: '#9CA3AF', fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip content={<DisputeTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.08)' }} />
-              <Legend wrapperStyle={{ fontSize: '12px', color: '#9CA3AF', paddingTop: '8px' }} />
-              <Line
-                type="monotone"
-                dataKey="disputeCount"
-                name="New Disputes"
-                stroke="#f43f5e"
-                strokeWidth={2}
-                dot={{ fill: '#f43f5e', r: 3 }}
-                activeDot={{ r: 5 }}
-              />
-              <Line
-                type="monotone"
-                dataKey="cumulativeDisputes"
-                name="Cumulative"
-                stroke="#f59e0b"
-                strokeWidth={2}
-                strokeDasharray="4 4"
-                dot={{ fill: '#f59e0b', r: 3 }}
-                activeDot={{ r: 5 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          <div className="overflow-x-auto">
+            <div style={{ minWidth: Math.max(400, data.length * 80) }}>
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart data={data} margin={{ top: 16, right: 16, bottom: 0, left: 16 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
+                    axisLine={{ stroke: '#374151' }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip content={<DisputeTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.08)' }} />
+                  <Legend wrapperStyle={{ fontSize: '12px', color: '#9CA3AF', paddingTop: '8px' }} />
+                  <Line
+                    type="monotone"
+                    dataKey="disputeCount"
+                    name="New Disputes"
+                    stroke="#f43f5e"
+                    strokeWidth={2}
+                    dot={{ fill: '#f43f5e', r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="cumulativeDisputes"
+                    name="Cumulative"
+                    stroke="#f59e0b"
+                    strokeWidth={2}
+                    strokeDasharray="4 4"
+                    dot={{ fill: '#f59e0b', r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         )}
       </div>
     </div>
