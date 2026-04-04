@@ -92,21 +92,40 @@ export default function UploadZone({ uploadState, onUpload }: UploadZoneProps) {
 
       {isUploading ? (
         <div className="flex flex-col items-center gap-3 w-full px-2">
-          {/* Progress bar — solid base + translateX shimmer overlay (reliable cross-browser) */}
-          <div
-            role="progressbar"
-            aria-label="Analyzing invoice"
-            aria-busy="true"
-            className="relative w-full h-1.5 rounded-full bg-gray-800 overflow-hidden"
-          >
-            <div className="absolute inset-0 rounded-full bg-blue-700" />
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-300/60 to-transparent animate-shimmer" />
-          </div>
+          {/* Progress bar */}
+          {(() => {
+            const pct =
+              uploadState.totalCount != null && uploadState.shipmentCount != null
+                ? Math.min(Math.round((uploadState.shipmentCount / uploadState.totalCount) * 100), 99)
+                : null;
+            return (
+              <div
+                role="progressbar"
+                aria-label="Analyzing invoice"
+                aria-valuenow={pct ?? undefined}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-busy="true"
+                className="relative w-full h-1.5 rounded-full bg-gray-800 overflow-hidden"
+              >
+                {/* Fill — grows from left as rows stream in; full-width when total unknown */}
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full bg-blue-700 overflow-hidden transition-[width] duration-300 ease-out"
+                  style={{ width: pct != null ? `${pct}%` : '100%' }}
+                >
+                  {/* Shimmer sweep inside the fill so it's clipped to filled area */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-300/50 to-transparent animate-shimmer" />
+                </div>
+              </div>
+            );
+          })()}
           <div className="flex items-baseline justify-between w-full">
             <p className="text-sm text-gray-400">Analyzing invoice…</p>
             {uploadState.shipmentCount != null && (
               <p className="text-xs tabular-nums text-blue-400">
-                {uploadState.shipmentCount.toLocaleString()} rows
+                {uploadState.totalCount != null
+                  ? `${uploadState.shipmentCount.toLocaleString()} / ${uploadState.totalCount.toLocaleString()} rows`
+                  : `${uploadState.shipmentCount.toLocaleString()} rows`}
               </p>
             )}
           </div>

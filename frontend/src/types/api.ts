@@ -13,6 +13,7 @@ export interface UploadState {
   status: 'idle' | 'uploading' | 'complete' | 'error';
   filename: string | null;
   shipmentCount: number | null;
+  totalCount: number | null;   // from __meta__.total — null for XLSX or unknown
   analysisTimeMs: number | null;
   results: ShipmentResult[] | null;
   errorMessage: string | null;
