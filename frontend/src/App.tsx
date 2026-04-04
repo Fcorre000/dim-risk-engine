@@ -95,10 +95,11 @@ export default function App() {
               ...(flushResults ? { results: [...allResults] } : {}),
             }));
 
-            // Yield to browser every 50 rows so React can paint the bar growth
-            // even when all data arrives in a single reader.read() burst
+            // Yield to browser every 50 rows so React can paint KPIs + progress bar.
+            // setTimeout(0) yields to the macrotask queue, ensuring the browser
+            // actually repaints before we resume processing the next batch.
             if (len % 50 === 0) {
-              await new Promise(resolve => requestAnimationFrame(resolve));
+              await new Promise(resolve => setTimeout(resolve, 0));
             }
           } catch { /* skip malformed lines */ }
         }

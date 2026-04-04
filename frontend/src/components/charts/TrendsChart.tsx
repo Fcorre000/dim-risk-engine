@@ -31,8 +31,10 @@ function ChargeTooltip({ active, payload, label }: ChargeTooltipProps) {
       <p className="font-semibold text-gray-100 mb-1.5">{label}</p>
       <p className="text-blue-400">FedEx Billed: {formatDollars(actual)}</p>
       <p className="text-gray-400">Model Predicted: {formatDollars(predicted)}</p>
-      {gap > 0 && (
-        <p className="text-rose-400 mt-1 font-medium">Gap: +{formatDollars(gap)}</p>
+      {gap !== 0 && (
+        <p className={`mt-1 font-medium ${gap > 0 ? 'text-rose-400' : 'text-gray-500'}`}>
+          Gap: {gap > 0 ? '+' : '-'}{formatDollars(Math.abs(gap))}
+        </p>
       )}
     </div>
   );

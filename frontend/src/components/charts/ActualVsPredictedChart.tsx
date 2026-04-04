@@ -32,8 +32,10 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
       <p className="font-semibold text-gray-100 mb-1.5">{label}</p>
       <p className="text-blue-400">FedEx Billed: {formatDollars(actual)}</p>
       <p className="text-gray-400">Model Predicted: {formatDollars(predicted)}</p>
-      {gap > 0 && (
-        <p className="text-rose-400 mt-1 font-medium">Potential savings: +{formatDollars(gap)}</p>
+      {gap !== 0 && (
+        <p className={`mt-1 font-medium ${gap > 0 ? 'text-rose-400' : 'text-gray-500'}`}>
+          {gap > 0 ? `Potential savings: +${formatDollars(gap)}` : `Under predicted: ${formatDollars(gap)}`}
+        </p>
       )}
     </div>
   );
@@ -47,17 +49,18 @@ interface GapLabelProps {
 }
 
 function GapLabel({ x = 0, y = 0, width = 0, value = 0 }: GapLabelProps) {
-  if (value <= 0) return null;
+  if (value === 0) return null;
+  const isPositive = value > 0;
   return (
     <text
       x={x + width / 2}
       y={y - 4}
       textAnchor="middle"
-      fill="#f87171"
+      fill={isPositive ? '#f87171' : '#6b7280'}
       fontSize={10}
       fontWeight={600}
     >
-      +{formatDollars(value)}
+      {isPositive ? '+' : '-'}{formatDollars(Math.abs(value))}
     </text>
   );
 }
