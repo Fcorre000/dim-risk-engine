@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import io
+import openpyxl
 from typing import Union
 
 FEATURE_COLS = [
@@ -67,6 +68,86 @@ def parse_invoice(file_bytes: io.BytesIO, filename: str) -> pd.DataFrame:
         df = df[df["Service Type"] != "NonTrans"].reset_index(drop=True)
 
     return df
+
+
+def parse_invoice_chunks(file_obj, filename: str, chunksize: int = 1000):
+    """Generator that yields preprocessed DataFrame chunks for CSV and XLSX files.
+
+    Args:
+        file_obj: File-like object (e.g., SpooledTemporaryFile from FastAPI).
+        filename: Original filename — used to detect .xlsx vs .csv.
+        chunksize: Number of rows per chunk.
+
+    Yields:
+        DataFrame chunks with the same columns as parse_invoice would return.
+
+    Raises:
+        ValueError: If file type unsupported or required columns are missing.
+    """
+    fn = filename.lower()
+
+    def _preprocess_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
+        # Normalize tracking number column
+        for alt in ("Shipment Tracking Number", "Master Tracking Number"):
+            if alt in chunk.columns and "Tracking Number" not in chunk.columns:
+                chunk = chunk.rename(columns={alt: "Tracking Number"})
+                break
+
+        # Customs Value is optional — fill if missing
+        if "Customs Value" not in chunk.columns:
+            chunk["Customs Value"] = 0.0
+
+        # Validate required columns (excluding Customs Value which we just filled)
+        required_to_check = [c for c in REQUIRED_COLS if c != "Customs Value"]
+        missing = [c for c in required_to_check if c not in chunk.columns]
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}")
+
+        # Drop NonTrans rows
+        if "Service Type" in chunk.columns:
+            chunk = chunk[chunk["Service Type"] != "NonTrans"].reset_index(drop=True)
+
+        # Strip leakage columns
+        leakage_present = [c for c in LEAKAGE_COLS if c in chunk.columns]
+        if leakage_present:
+            chunk = chunk.drop(columns=leakage_present)
+
+        return chunk
+
+    if fn.endswith(".csv"):
+        for chunk in pd.read_csv(file_obj, chunksize=chunksize):
+            yield _preprocess_chunk(chunk)
+
+    elif fn.endswith(".xlsx"):
+        wb = openpyxl.load_workbook(file_obj, read_only=True, data_only=True)
+        try:
+            ws = wb.active
+            rows_iter = ws.iter_rows(min_row=1, max_row=1)
+            header = [cell.value for cell in next(rows_iter)]
+
+            # Apply tracking number alias normalization to header
+            for alt in ("Shipment Tracking Number", "Master Tracking Number"):
+                if alt in header and "Tracking Number" not in header:
+                    header[header.index(alt)] = "Tracking Number"
+                    break
+
+            batch = []
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                batch.append(row)
+                if len(batch) >= chunksize:
+                    chunk = pd.DataFrame(batch, columns=header)
+                    yield _preprocess_chunk(chunk)
+                    batch = []
+
+            # Yield remaining rows
+            if batch:
+                chunk = pd.DataFrame(batch, columns=header)
+                yield _preprocess_chunk(chunk)
+        finally:
+            wb.close()
+
+    else:
+        raise ValueError("Unsupported file type. Upload .xlsx or .csv")
 
 
 def clean_zone(raw_zone) -> str:
