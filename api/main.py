@@ -90,6 +90,7 @@ async def analyze(request: Request, file: UploadFile = File(...)):
 @app.post("/analyze/stream")
 async def analyze_stream(request: Request, file: UploadFile = File(...)):
     filename = file.filename or "upload.csv"
+    contents = await file.read()  # read eagerly — avoids file handle lifecycle issues in threadpool
     total = None
 
     clf = request.app.state.clf
@@ -98,8 +99,7 @@ async def analyze_stream(request: Request, file: UploadFile = File(...)):
     def generate():
         yield _json.dumps({"__meta__": True, "total": total}) + "\n"
         try:
-            file.file.seek(0)
-            for chunk in parse_invoice_chunks(file.file, filename, chunksize=1000):
+            for chunk in parse_invoice_chunks(io.BytesIO(contents), filename, chunksize=1000):
                 for row in run_inference(chunk, clf, reg):
                     yield _json.dumps(row) + "\n"
         except ValueError as e:
