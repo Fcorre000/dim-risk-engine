@@ -85,10 +85,10 @@ export default function App() {
             }
             allResults.push(obj);
 
-            // Update progress bar on every row (shipmentCount is cheap to render).
-            // Flush full results array less often to avoid cloning on every row.
+            // Update progress + results. Flush results every 50 rows so KPIs
+            // (including Recoverable) update visibly during streaming.
             const len = allResults.length;
-            const flushResults = len % 200 === 0;
+            const flushResults = len % 50 === 0;
             setUploadState(prev => ({
               ...prev,
               shipmentCount: len,
