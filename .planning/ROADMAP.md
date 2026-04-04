@@ -110,10 +110,26 @@ Plans:
 - [ ] 05-02-PLAN.md — Frontend deployment: VITE_API_URL wired into API calls, npm run build passes, render.yaml static site entry with SPA rewrite route
 - [ ] 05-03-PLAN.md — Performance + smoke test: scripts/smoke_test.py, 5k-row upload < 1s (warm), end-to-end UI check, RESULTS.md documented
 
+### Phase 6: Chunked File Processing
+**Goal**: Fix OOM crashes on Render free tier (512MB RAM) when uploading large files by processing CSV and XLSX files in memory-efficient chunks instead of loading entire files into RAM.
+**Depends on**: Phase 5
+**Requirements**: (cross-cutting — production reliability fix)
+**Success Criteria** (what must be TRUE):
+  1. An 18MB+ CSV file uploads and streams results without crashing the Render free tier instance (no 502/OOM)
+  2. An 18MB+ XLSX file does the same via openpyxl read_only streaming
+  3. Peak RAM stays under ~50MB regardless of file size during inference
+  4. The NDJSON streaming response format is preserved (`__meta__` line + one JSON object per row)
+  5. The `/health` endpoint still returns `models_loaded: true` after a large file upload
+**Plans:** 0/2 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Chunked CSV parsing: refactor parse_invoice to support pd.read_csv(chunksize=1000) for CSV files, returning a chunk iterator instead of a full DataFrame
+- [ ] 06-02-PLAN.md — Chunked XLSX parsing + streaming endpoint wiring: openpyxl read_only=True for XLSX, refactor /analyze/stream to iterate chunks, keep /analyze endpoint unchanged
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -122,3 +138,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 3. Detail Pages | 0/3 | Not started | - |
 | 4. Trends + Export | 0/2 | Not started | - |
 | 5. Deployment + Polish | 0/3 | Not started | - |
+| 6. Chunked File Processing | 0/2 | Not started | - |
