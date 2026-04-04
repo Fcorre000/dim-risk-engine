@@ -92,13 +92,20 @@ async def analyze_stream(request: Request, file: UploadFile = File(...)):
     filename = file.filename or "upload.csv"
     contents = await file.read()  # read eagerly — avoids file handle lifecycle issues in threadpool
 
-    # Cheap row estimate from bytes already in memory (CSV only; XLSX stays null)
+    # Cheap row estimate from bytes already in memory
     total = None
-    if filename.lower().endswith(".csv"):
-        try:
+    fn = filename.lower()
+    try:
+        if fn.endswith(".csv"):
             total = max(0, contents.count(b"\n") - 1)  # subtract header row
-        except Exception:
-            pass
+        elif fn.endswith(".xlsx"):
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(contents), read_only=True, data_only=True)
+            ws = wb.active
+            total = max(0, ws.max_row - 1) if ws.max_row else None  # subtract header
+            wb.close()
+    except Exception:
+        pass
 
     clf = request.app.state.clf
     reg = request.app.state.reg
