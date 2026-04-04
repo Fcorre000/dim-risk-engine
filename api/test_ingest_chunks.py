@@ -59,9 +59,10 @@ def test_csv_chunking():
     assert total_rows == 4, f"Expected 4 rows (1 NonTrans dropped), got {total_rows}"
     assert len(chunks) == 2, f"Expected 2 chunks with chunksize=3, got {len(chunks)}"
 
+    # Leakage columns stay in chunk (build_feature_matrix strips them for model input)
     for chunk in chunks:
-        assert "Net Charge Billed Currency" not in chunk.columns
-        assert "Shipment Rated Weight(Pounds)" not in chunk.columns
+        assert "Tracking Number" in chunk.columns
+        assert "Service Type" in chunk.columns
 
 
 def test_xlsx_chunking():
@@ -74,5 +75,5 @@ def test_xlsx_chunking():
     assert total_rows == 4, f"Expected 4 rows (1 NonTrans dropped), got {total_rows}"
 
     for chunk in chunks:
-        assert "Net Charge Billed Currency" not in chunk.columns
-        assert "Shipment Rated Weight(Pounds)" not in chunk.columns
+        assert "Tracking Number" in chunk.columns
+        assert "Service Type" in chunk.columns

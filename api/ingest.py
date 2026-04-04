@@ -107,11 +107,6 @@ def parse_invoice_chunks(file_obj, filename: str, chunksize: int = 1000):
         if "Service Type" in chunk.columns:
             chunk = chunk[chunk["Service Type"] != "NonTrans"].reset_index(drop=True)
 
-        # Strip leakage columns
-        leakage_present = [c for c in LEAKAGE_COLS if c in chunk.columns]
-        if leakage_present:
-            chunk = chunk.drop(columns=leakage_present)
-
         return chunk
 
     if fn.endswith(".csv"):
