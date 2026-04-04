@@ -17,6 +17,7 @@ const INITIAL_UPLOAD_STATE: UploadState = {
   analysisTimeMs: null,
   results: null,
   errorMessage: null,
+  streamingKpis: null,
 };
 
 export default function App() {
@@ -32,6 +33,7 @@ export default function App() {
       analysisTimeMs: null,
       results: null,
       errorMessage: null,
+      streamingKpis: null,
     });
 
     const startTime = performance.now();
@@ -55,6 +57,7 @@ export default function App() {
           analysisTimeMs: null,
           results: null,
           errorMessage: errorBody.detail ?? `Server error ${response.status}`,
+          streamingKpis: null,
         });
         return;
       }
@@ -64,6 +67,11 @@ export default function App() {
       let buffer = '';
       let totalCount: number | null = null;
       const allResults: import('./types/api').ShipmentResult[] = [];
+
+      // Incremental KPI counters — avoids O(n²) recomputation from full array
+      let dimFlaggedCount = 0;
+      let disputeCandidates = 0;
+      let estRecoverable = 0;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -79,26 +87,34 @@ export default function App() {
             const obj = JSON.parse(line);
             if (obj.__meta__) {
               totalCount = typeof obj.total === 'number' ? obj.total : null;
-              // Immediately surface totalCount so the bar can start filling
               setUploadState(prev => ({ ...prev, totalCount }));
               continue;
             }
             allResults.push(obj);
 
-            // Update progress + results. Flush results every 50 rows so KPIs
-            // (including Recoverable) update visibly during streaming.
-            const len = allResults.length;
-            const flushResults = len % 50 === 0;
-            setUploadState(prev => ({
-              ...prev,
-              shipmentCount: len,
-              ...(flushResults ? { results: [...allResults] } : {}),
-            }));
+            // Update incremental KPI counters (O(1) per row)
+            if (obj.dim_flag_probability > 0.5) dimFlaggedCount++;
+            if (obj.dim_anomaly === 'Unexpected') {
+              disputeCandidates++;
+              const gap = obj.actual_net_charge - obj.predicted_net_charge;
+              if (gap > 0) estRecoverable += gap;
+            }
 
-            // Yield to browser every 50 rows so React can paint KPIs + progress bar.
-            // setTimeout(0) yields to the macrotask queue, ensuring the browser
-            // actually repaints before we resume processing the next batch.
+            const len = allResults.length;
+
+            // Every 50 rows: update progress bar + streaming KPIs (cheap — just numbers)
             if (len % 50 === 0) {
+              const kpis = { dimFlaggedCount, disputeCandidates, estRecoverable: parseFloat(estRecoverable.toFixed(2)) };
+              // Flush full results array every 500 rows for charts; KPIs update every 50
+              const flushResults = len % 500 === 0;
+              setUploadState(prev => ({
+                ...prev,
+                shipmentCount: len,
+                streamingKpis: kpis,
+                ...(flushResults ? { results: [...allResults] } : {}),
+              }));
+
+              // Yield to browser so React can paint progress bar + KPIs
               await new Promise(resolve => setTimeout(resolve, 0));
             }
           } catch { /* skip malformed lines */ }
@@ -113,6 +129,7 @@ export default function App() {
         analysisTimeMs: Math.round(performance.now() - startTime),
         results: allResults,
         errorMessage: null,
+        streamingKpis: null,  // clear — OverviewPage computes from final results
       });
     } catch {
       setUploadState({
@@ -123,6 +140,7 @@ export default function App() {
         analysisTimeMs: null,
         results: null,
         errorMessage: 'Could not reach the backend. Is the API server running on port 8000?',
+        streamingKpis: null,
       });
     }
   };
