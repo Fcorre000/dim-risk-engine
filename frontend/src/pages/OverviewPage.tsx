@@ -14,10 +14,23 @@ interface OverviewPageProps {
 
 export default function OverviewPage({ uploadState, onUpload }: OverviewPageProps) {
   const results = uploadState.results ?? [];
-  const kpis = computeKpis(results);
+  const computedKpis = computeKpis(results);
   const zoneData = computeZoneData(results);
   const monthlyData = computeMonthlyData(results);
-  const hasData = results.length > 0;
+
+  // During streaming, use incremental KPIs (updated every 50 rows, O(1) per update)
+  // instead of recomputing from the full results array which causes O(n²) total work.
+  const sk = uploadState.streamingKpis;
+  const shipmentCount = uploadState.shipmentCount ?? 0;
+  const kpis = sk ? {
+    totalShipments: shipmentCount,
+    dimFlaggedCount: sk.dimFlaggedCount,
+    dimFlaggedPercent: shipmentCount > 0 ? parseFloat(((sk.dimFlaggedCount / shipmentCount) * 100).toFixed(1)) : 0,
+    disputeCandidates: sk.disputeCandidates,
+    estRecoverable: sk.estRecoverable,
+  } : computedKpis;
+
+  const hasData = results.length > 0 || shipmentCount > 0;
 
   return (
     <div className="space-y-8">

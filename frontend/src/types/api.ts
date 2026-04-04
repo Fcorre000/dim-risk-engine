@@ -16,6 +16,12 @@ export interface ShipmentResult {
 
 export type PageId = 'overview' | 'anomalies' | 'by-zone' | 'by-sku' | 'trends' | 'export';
 
+export interface StreamingKpis {
+  dimFlaggedCount: number;
+  disputeCandidates: number;
+  estRecoverable: number;
+}
+
 export interface UploadState {
   status: 'idle' | 'uploading' | 'complete' | 'error';
   filename: string | null;
@@ -24,4 +30,5 @@ export interface UploadState {
   analysisTimeMs: number | null;
   results: ShipmentResult[] | null;
   errorMessage: string | null;
+  streamingKpis: StreamingKpis | null;  // incremental KPIs updated during streaming
 }
