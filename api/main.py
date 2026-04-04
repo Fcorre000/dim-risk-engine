@@ -91,7 +91,14 @@ async def analyze(request: Request, file: UploadFile = File(...)):
 async def analyze_stream(request: Request, file: UploadFile = File(...)):
     filename = file.filename or "upload.csv"
     contents = await file.read()  # read eagerly — avoids file handle lifecycle issues in threadpool
+
+    # Cheap row estimate from bytes already in memory (CSV only; XLSX stays null)
     total = None
+    if filename.lower().endswith(".csv"):
+        try:
+            total = max(0, contents.count(b"\n") - 1)  # subtract header row
+        except Exception:
+            pass
 
     clf = request.app.state.clf
     reg = request.app.state.reg

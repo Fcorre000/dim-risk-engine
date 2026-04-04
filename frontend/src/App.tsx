@@ -13,6 +13,7 @@ const INITIAL_UPLOAD_STATE: UploadState = {
   status: 'idle',
   filename: null,
   shipmentCount: null,
+  totalCount: null,
   analysisTimeMs: null,
   results: null,
   errorMessage: null,
@@ -27,6 +28,7 @@ export default function App() {
       status: 'uploading',
       filename: file.name,
       shipmentCount: null,
+      totalCount: null,
       analysisTimeMs: null,
       results: null,
       errorMessage: null,
@@ -49,6 +51,7 @@ export default function App() {
           status: 'error',
           filename: file.name,
           shipmentCount: null,
+          totalCount: null,
           analysisTimeMs: null,
           results: null,
           errorMessage: errorBody.detail ?? `Server error ${response.status}`,
@@ -59,6 +62,7 @@ export default function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let totalCount: number | null = null;
       const allResults: import('./types/api').ShipmentResult[] = [];
 
       while (true) {
@@ -73,9 +77,14 @@ export default function App() {
           if (!line.trim()) continue;
           try {
             const obj = JSON.parse(line);
-            if (obj.__meta__) continue;
+            if (obj.__meta__) {
+              totalCount = typeof obj.total === 'number' ? obj.total : null;
+              // Immediately surface totalCount so the bar can start filling
+              setUploadState(prev => ({ ...prev, totalCount }));
+              continue;
+            }
             allResults.push(obj);
-            // Update UI every 200 rows so the row counter feels responsive
+            // Update UI every 200 rows so the progress bar feels responsive
             if (allResults.length % 200 === 0) {
               setUploadState(prev => ({
                 ...prev,
@@ -91,6 +100,7 @@ export default function App() {
         status: 'complete',
         filename: file.name,
         shipmentCount: allResults.length,
+        totalCount,
         analysisTimeMs: Math.round(performance.now() - startTime),
         results: allResults,
         errorMessage: null,
@@ -100,6 +110,7 @@ export default function App() {
         status: 'error',
         filename: file.name,
         shipmentCount: null,
+        totalCount: null,
         analysisTimeMs: null,
         results: null,
         errorMessage: 'Could not reach the backend. Is the API server running on port 8000?',
