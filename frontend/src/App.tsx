@@ -75,8 +75,8 @@ export default function App() {
             const obj = JSON.parse(line);
             if (obj.__meta__) continue;
             allResults.push(obj);
-            // Update UI every 500 rows so large files show progress
-            if (allResults.length % 500 === 0) {
+            // Update UI every 200 rows so the row counter feels responsive
+            if (allResults.length % 200 === 0) {
               setUploadState(prev => ({
                 ...prev,
                 shipmentCount: allResults.length,

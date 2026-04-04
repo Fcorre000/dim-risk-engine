@@ -91,29 +91,27 @@ export default function UploadZone({ uploadState, onUpload }: UploadZoneProps) {
       />
 
       {isUploading ? (
-        <div className="flex flex-col items-center gap-3">
-          <svg
-            className="animate-spin h-8 w-8 text-blue-500"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
+        <div className="flex flex-col items-center gap-3 w-full max-w-xs">
+          {/* Shimmer progress bar — animates continuously so it looks active even between chunk updates */}
+          <div
+            role="progressbar"
+            aria-label="Analyzing invoice"
+            aria-busy="true"
+            className="w-full h-1.5 rounded-full bg-gray-800 overflow-hidden"
           >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
+            <div
+              className="h-full w-full rounded-full animate-shimmer bg-gradient-to-r from-blue-700 via-blue-400 to-blue-700 [background-size:200%_100%]"
+              style={{ backgroundSize: '200% 100%' }}
             />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-            />
-          </svg>
-          <p className="text-sm text-gray-400">Analyzing invoice...</p>
+          </div>
+          <div className="flex items-baseline justify-between w-full">
+            <p className="text-sm text-gray-400">Analyzing invoice…</p>
+            {uploadState.shipmentCount != null && (
+              <p className="text-xs tabular-nums text-blue-400">
+                {uploadState.shipmentCount.toLocaleString()} rows
+              </p>
+            )}
+          </div>
         </div>
       ) : (
         <div className="flex flex-col items-center gap-3">

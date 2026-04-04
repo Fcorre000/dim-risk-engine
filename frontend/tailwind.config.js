@@ -23,6 +23,15 @@ export default {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
+      animation: {
+        shimmer: 'shimmer 1.8s linear infinite',
+      },
+      keyframes: {
+        shimmer: {
+          '0%':   { backgroundPosition: '200% center' },
+          '100%': { backgroundPosition: '-200% center' },
+        },
+      },
     },
   },
   plugins: [],
