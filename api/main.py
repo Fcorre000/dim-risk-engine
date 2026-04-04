@@ -12,7 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from ingest import parse_invoice
+import json as _json
+
+from ingest import parse_invoice, parse_invoice_chunks
 from inference import run_inference
 
 warnings.filterwarnings("ignore", message=".*Booster.*", category=UserWarning)
@@ -87,26 +89,19 @@ async def analyze(request: Request, file: UploadFile = File(...)):
 
 @app.post("/analyze/stream")
 async def analyze_stream(request: Request, file: UploadFile = File(...)):
-    contents = await file.read()
     filename = file.filename or "upload.csv"
-
-    try:
-        df = parse_invoice(io.BytesIO(contents), filename)
-    except ValueError as e:
-        return JSONResponse(status_code=422, content={"detail": str(e)})
+    total = None
 
     clf = request.app.state.clf
     reg = request.app.state.reg
-    total = len(df)
-
-    import json as _json
 
     def generate():
         yield _json.dumps({"__meta__": True, "total": total}) + "\n"
-        chunk_size = 500
-        for start in range(0, total, chunk_size):
-            chunk = df.iloc[start:start + chunk_size]
-            for row in run_inference(chunk, clf, reg):
-                yield _json.dumps(row) + "\n"
+        try:
+            for chunk in parse_invoice_chunks(file.file, filename, chunksize=1000):
+                for row in run_inference(chunk, clf, reg):
+                    yield _json.dumps(row) + "\n"
+        except ValueError as e:
+            yield _json.dumps({"__error__": str(e)}) + "\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
