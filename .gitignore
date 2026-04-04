@@ -5,7 +5,8 @@
 frontend/node_modules
 /.pnp
 .pnp.js
-
+*.xlsx
+*.csv
 # testing
 /coverage
 

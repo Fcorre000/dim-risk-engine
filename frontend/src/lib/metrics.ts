@@ -14,16 +14,6 @@ export interface ZoneDataPoint {
   count: number;                // total shipments in zone
 }
 
-/**
- * Derive a synthetic pricing zone from tracking number.
- * Zone is not in ShipmentResult v1; this gives demo distribution.
- * Last 2 digits of tracking_number mod 8, offset to zones 02-09.
- */
-function deriveZone(trackingNumber: string): string {
-  const lastTwo = parseInt(trackingNumber.slice(-2), 10);
-  const zoneNum = (isNaN(lastTwo) ? 0 : lastTwo % 8) + 2;
-  return String(zoneNum).padStart(2, '0');
-}
 
 /**
  * Compute KPI summary values from a list of shipment results.
@@ -73,7 +63,7 @@ export function computeZoneData(results: ShipmentResult[]): ZoneDataPoint[] {
   const zoneMap: Record<string, { total: number; dimFlagged: number }> = {};
 
   for (const r of results) {
-    const zone = deriveZone(r.tracking_number);
+    const zone = r.zone;
     if (!zoneMap[zone]) zoneMap[zone] = { total: 0, dimFlagged: 0 };
     zoneMap[zone].total += 1;
     if (r.dim_flag_probability > 0.5) zoneMap[zone].dimFlagged += 1;
@@ -102,45 +92,62 @@ export function formatDollars(value: number): string {
 }
 
 export interface MonthlyDataPoint {
-  month: string;      // "M1" .. "M6"
+  month: string;      // "Jan 2022", "Feb 2022", etc. (or "Unknown" if no date)
   actual: number;     // sum of actual_net_charge from invoice
   predicted: number;  // sum of predicted_net_charge from model
   gap: number;        // actual - predicted
 }
 
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 /**
- * Derive a month bucket (M1-M6) from tracking number.
- * Third-to-last and second-to-last digits mod 6 → month index.
- * (Invoice date not in API response — synthetic bucketing for demo.)
+ * Derive a month key from shipment_date ("YYYY-MM-DD" → "May 2022").
+ * Returns null if date is missing or unparseable.
  */
-function deriveMonth(trackingNumber: string): string {
-  const slice = parseInt(trackingNumber.slice(-3, -1), 10);
-  const idx = (isNaN(slice) ? 0 : slice % 6) + 1;
-  return `M${idx}`;
+function getMonthKey(shipmentDate: string | null): string | null {
+  if (!shipmentDate) return null;
+  const d = new Date(shipmentDate + 'T00:00:00');
+  if (isNaN(d.getTime())) return null;
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 /**
- * Aggregate shipment results into 6 monthly actual vs predicted buckets.
- * Uses real actual_net_charge from invoice. Returns M1..M6 array.
+ * Sort key for month labels like "May 2022" → numeric for chronological ordering.
+ */
+function monthSortKey(label: string): number {
+  const parts = label.split(' ');
+  if (parts.length !== 2) return 0;
+  const monthIdx = MONTH_NAMES.indexOf(parts[0]);
+  const year = parseInt(parts[1], 10);
+  return year * 12 + (monthIdx >= 0 ? monthIdx : 0);
+}
+
+/**
+ * Aggregate shipment results into monthly actual vs predicted buckets.
+ * Uses real shipment_date when available. Results sorted chronologically.
  */
 export function computeMonthlyData(results: ShipmentResult[]): MonthlyDataPoint[] {
-  const MONTHS = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6'];
   const buckets: Record<string, { actual: number; predicted: number }> = {};
-  for (const m of MONTHS) buckets[m] = { actual: 0, predicted: 0 };
 
   for (const r of results) {
-    const month = deriveMonth(r.tracking_number);
+    const month = getMonthKey(r.shipment_date) ?? 'Unknown';
     if (!buckets[month]) buckets[month] = { actual: 0, predicted: 0 };
     buckets[month].actual += r.actual_net_charge;
     buckets[month].predicted += r.predicted_net_charge;
   }
 
-  return MONTHS.map((m) => ({
-    month: m,
-    actual: parseFloat(buckets[m].actual.toFixed(2)),
-    predicted: parseFloat(buckets[m].predicted.toFixed(2)),
-    gap: parseFloat((buckets[m].actual - buckets[m].predicted).toFixed(2)),
-  }));
+  return Object.entries(buckets)
+    .sort(([a], [b]) => {
+      if (a === 'Unknown') return 1;
+      if (b === 'Unknown') return -1;
+      return monthSortKey(a) - monthSortKey(b);
+    })
+    .map(([month, data]) => ({
+      month,
+      actual: parseFloat(data.actual.toFixed(2)),
+      predicted: parseFloat(data.predicted.toFixed(2)),
+      gap: parseFloat((data.actual - data.predicted).toFixed(2)),
+    }));
 }
 
 export interface ZoneDetailPoint {
@@ -170,9 +177,7 @@ export function computeZoneDetails(results: ShipmentResult[]): ZoneDetailPoint[]
   }> = {};
 
   for (const r of results) {
-    const lastTwo = parseInt(r.tracking_number.slice(-2), 10);
-    const zoneNum = (isNaN(lastTwo) ? 0 : lastTwo % 8) + 2;
-    const zone = String(zoneNum).padStart(2, '0');
+    const zone = r.zone;
 
     if (!zoneMap[zone]) {
       zoneMap[zone] = { total: 0, dimFlagged: 0, actual: 0, predicted: 0, unexpected: 0 };
@@ -197,15 +202,6 @@ export function computeZoneDetails(results: ShipmentResult[]): ZoneDetailPoint[]
     .sort((a, b) => b.gapTotal - a.gapTotal);
 }
 
-const SKU_SERVICES = [
-  'FedEx Ground', 'FedEx 2Day', 'FedEx Overnight', 'FedEx Express Saver',
-  'FedEx Ground', 'FedEx Home', 'FedEx 2Day AM', 'FedEx Priority', 'FedEx Ground', 'FedEx Economy',
-];
-
-function deriveServiceFromTracking(trackingNumber: string): string {
-  const idx = parseInt(trackingNumber.slice(-1), 10);
-  return SKU_SERVICES[isNaN(idx) ? 0 : idx];
-}
 
 export interface SkuDataPoint {
   service: string;
@@ -235,7 +231,7 @@ export function computeSkuData(results: ShipmentResult[]): SkuDataPoint[] {
   }> = {};
 
   for (const r of results) {
-    const service = deriveServiceFromTracking(r.tracking_number);
+    const service = r.service_type;
     if (!skuMap[service]) {
       skuMap[service] = { count: 0, dimFlagged: 0, unexpected: 0, review: 0, actual: 0, gap: 0 };
     }
@@ -261,7 +257,7 @@ export function computeSkuData(results: ShipmentResult[]): SkuDataPoint[] {
 }
 
 export interface TrendsDataPoint {
-  month: string;              // "M1" .. "M6"
+  month: string;              // "May 2022", "Jun 2022", etc.
   actual: number;             // sum of actual_net_charge for this month bucket
   predicted: number;          // sum of predicted_net_charge for this month bucket
   gap: number;                // actual - predicted (positive = overcharge)
@@ -270,33 +266,33 @@ export interface TrendsDataPoint {
 }
 
 /**
- * Aggregate shipment results into 6 monthly trend buckets.
- * Uses same deriveMonth logic as computeMonthlyData (trackingNumber.slice(-3, -1) mod 6 + 1).
+ * Aggregate shipment results into monthly trend buckets using real shipment dates.
  * Each point adds cumulativeDisputes — the running sum of dispute candidates month over month.
- * Returns M1..M6 array always (empty months have zeros).
+ * Returns array sorted chronologically.
  */
 export function computeTrendsData(results: ShipmentResult[]): TrendsDataPoint[] {
-  const MONTHS = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6'];
   const buckets: Record<string, { actual: number; predicted: number; disputes: number }> = {};
-  for (const m of MONTHS) buckets[m] = { actual: 0, predicted: 0, disputes: 0 };
 
   for (const r of results) {
-    const slice = parseInt(r.tracking_number.slice(-3, -1), 10);
-    const idx = (isNaN(slice) ? 0 : slice % 6) + 1;
-    const month = `M${idx}`;
+    const month = getMonthKey(r.shipment_date) ?? 'Unknown';
     if (!buckets[month]) buckets[month] = { actual: 0, predicted: 0, disputes: 0 };
     buckets[month].actual += r.actual_net_charge;
     buckets[month].predicted += r.predicted_net_charge;
     if (r.dim_anomaly === 'Unexpected') buckets[month].disputes += 1;
   }
 
+  const sorted = Object.entries(buckets).sort(([a], [b]) => {
+    if (a === 'Unknown') return 1;
+    if (b === 'Unknown') return -1;
+    return monthSortKey(a) - monthSortKey(b);
+  });
+
   let cumulative = 0;
-  return MONTHS.map((m) => {
-    const b = buckets[m];
+  return sorted.map(([month, b]) => {
     const actual = parseFloat(b.actual.toFixed(2));
     const predicted = parseFloat(b.predicted.toFixed(2));
     const gap = parseFloat((b.actual - b.predicted).toFixed(2));
     cumulative += b.disputes;
-    return { month: m, actual, predicted, gap, disputeCount: b.disputes, cumulativeDisputes: cumulative };
+    return { month, actual, predicted, gap, disputeCount: b.disputes, cumulativeDisputes: cumulative };
   });
 }

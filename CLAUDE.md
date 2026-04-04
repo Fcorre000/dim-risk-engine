@@ -49,6 +49,23 @@ candidates.
 - `requestAnimationFrame` yield every 50 rows to force React to paint
   intermediate states (React 18 batches synchronous setState calls)
 
+## Source data reference
+The real FedEx invoice is `FedEx_ShipmentDetail.xlsx` (root dir, ~50k rows).
+A 50-row CSV extract is at `test_invoice_50rows.csv` (fewer columns — no dates).
+**Always cross-reference these files** when building features or displaying
+shipment fields. The XLSX has 65 columns; key ones not in the CSV:
+  - Col G: `Shipment Date (mm/dd/yyyy)`
+  - Col H: `Shipment Delivery Date (mm/dd/yyyy)`
+  - Col 2: `Invoice Month (yyyymm)`
+
+### Past bug: fake derive* functions
+The frontend originally used `deriveDims()`, `deriveWeight()`, `deriveZone()`,
+`deriveService()`, and `deriveMonth()` — placeholder functions that hashed the
+tracking number to generate fake dimensions, weight, zone, service type, and
+month buckets. These were replaced with real data from the backend API. All
+display fields (dims, weight, zone, service type, shipment date) now come from
+the actual invoice columns parsed in `api/inference.py`.
+
 ## Full model context
 See docs/ folder — read 01_eda_notes.docx and model_results_reference.docx
 before writing any inference code.

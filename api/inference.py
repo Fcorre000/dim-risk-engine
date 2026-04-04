@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from ingest import build_feature_matrix
+from ingest import build_feature_matrix, clean_zone
 
 
 def apply_anomaly_flags(
@@ -71,6 +71,14 @@ def run_inference(df: pd.DataFrame, clf, reg) -> list:
     fedex_dim_flags = df["Shipment DIM Flag (Y or N)"]
     actual_charges = pd.to_numeric(df["Net Charge Billed Currency"], errors="coerce").fillna(0)
 
+    # Shipment date — optional, present in full XLSX exports but not all CSVs
+    date_col = None
+    for col_name in ("Shipment Date (mm/dd/yyyy)", "Shipment Date"):
+        if col_name in df.columns:
+            date_col = col_name
+            break
+    shipment_dates = pd.to_datetime(df[date_col], errors="coerce") if date_col else None
+
     # Apply anomaly flags
     anomaly_flags = apply_anomaly_flags(
         dim_proba_y, fedex_dim_flags, actual_charges, predicted_charge
@@ -81,6 +89,13 @@ def run_inference(df: pd.DataFrame, clf, reg) -> list:
     for i in range(len(df)):
         results.append({
             "tracking_number": str(df["Tracking Number"].iloc[i]),
+            "service_type": str(df["Service Type"].iloc[i]),
+            "weight_lbs": round(float(pd.to_numeric(df["Original Weight (Pounds)"].iloc[i], errors="coerce") or 0), 1),
+            "dim_length": round(float(pd.to_numeric(df["Dimmed Length (in)"].iloc[i], errors="coerce") or 0), 1),
+            "dim_width": round(float(pd.to_numeric(df["Dimmed Width (in)"].iloc[i], errors="coerce") or 0), 1),
+            "dim_height": round(float(pd.to_numeric(df["Dimmed Height (in)"].iloc[i], errors="coerce") or 0), 1),
+            "zone": clean_zone(df["Pricing Zone"].iloc[i]),
+            "shipment_date": shipment_dates.iloc[i].strftime("%Y-%m-%d") if shipment_dates is not None and pd.notna(shipment_dates.iloc[i]) else None,
             "dim_flag_probability": round(float(dim_proba_y[i]), 4),
             "actual_net_charge": round(float(actual_charges.iloc[i]), 2),
             "predicted_net_charge": round(float(predicted_charge[i]), 2),

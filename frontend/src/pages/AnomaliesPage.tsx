@@ -15,33 +15,6 @@ function flagOrder(r: ShipmentResult): number {
   return 2;
 }
 
-function deriveService(trackingNumber: string): string {
-  const SERVICES = [
-    'FedEx Ground', 'FedEx 2Day', 'FedEx Overnight', 'FedEx Express Saver',
-    'FedEx Ground', 'FedEx Home', 'FedEx 2Day AM', 'FedEx Priority', 'FedEx Ground', 'FedEx Economy',
-  ];
-  const idx = parseInt(trackingNumber.slice(-1), 10);
-  return SERVICES[isNaN(idx) ? 0 : idx];
-}
-
-function deriveDims(trackingNumber: string): string {
-  const hash = trackingNumber.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  const l = (hash % 18) + 8;
-  const w = ((hash >> 2) % 14) + 8;
-  const h = ((hash >> 4) % 10) + 6;
-  return `${l}×${w}×${h}`;
-}
-
-function deriveWeight(predicted: number): string {
-  return `${Math.max(1, Math.round(predicted / 8))} lbs`;
-}
-
-function deriveZone(trackingNumber: string): string {
-  const lastTwo = parseInt(trackingNumber.slice(-2), 10);
-  const zoneNum = (isNaN(lastTwo) ? 0 : lastTwo % 8) + 2;
-  return `Zone ${String(zoneNum).padStart(2, '0')}`;
-}
-
 function FlagBadge({ dimAnomaly, costAnomaly }: { dimAnomaly: ShipmentResult['dim_anomaly']; costAnomaly: ShipmentResult['cost_anomaly'] }) {
   if (dimAnomaly === 'Unexpected') {
     return (
@@ -199,16 +172,16 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                         {row.tracking_number}
                       </td>
                       <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
-                        {deriveService(row.tracking_number)}
+                        {row.service_type}
                       </td>
                       <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
-                        {deriveDims(row.tracking_number)}
+                        {row.dim_length}×{row.dim_width}×{row.dim_height}
                       </td>
                       <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
-                        {deriveWeight(row.predicted_net_charge)}
+                        {row.weight_lbs} lbs
                       </td>
                       <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
-                        {deriveZone(row.tracking_number)}
+                        Zone {row.zone}
                       </td>
                       <td className="px-4 py-3 text-gray-300 font-medium tabular-nums whitespace-nowrap">
                         {formatDollars(row.actual_net_charge)}
