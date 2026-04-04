@@ -24,12 +24,12 @@ export default {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
       animation: {
-        shimmer: 'shimmer 1.8s linear infinite',
+        shimmer: 'shimmer 1.8s ease-in-out infinite',
       },
       keyframes: {
         shimmer: {
-          '0%':   { backgroundPosition: '200% center' },
-          '100%': { backgroundPosition: '-200% center' },
+          '0%':   { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(300%)' },
         },
       },
     },

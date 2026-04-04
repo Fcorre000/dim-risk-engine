@@ -91,18 +91,16 @@ export default function UploadZone({ uploadState, onUpload }: UploadZoneProps) {
       />
 
       {isUploading ? (
-        <div className="flex flex-col items-center gap-3 w-full max-w-xs">
-          {/* Shimmer progress bar — animates continuously so it looks active even between chunk updates */}
+        <div className="flex flex-col items-center gap-3 w-full px-2">
+          {/* Progress bar — solid base + translateX shimmer overlay (reliable cross-browser) */}
           <div
             role="progressbar"
             aria-label="Analyzing invoice"
             aria-busy="true"
-            className="w-full h-1.5 rounded-full bg-gray-800 overflow-hidden"
+            className="relative w-full h-1.5 rounded-full bg-gray-800 overflow-hidden"
           >
-            <div
-              className="h-full w-full rounded-full animate-shimmer bg-gradient-to-r from-blue-700 via-blue-400 to-blue-700 [background-size:200%_100%]"
-              style={{ backgroundSize: '200% 100%' }}
-            />
+            <div className="absolute inset-0 rounded-full bg-blue-700" />
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-300/60 to-transparent animate-shimmer" />
           </div>
           <div className="flex items-baseline justify-between w-full">
             <p className="text-sm text-gray-400">Analyzing invoice…</p>
