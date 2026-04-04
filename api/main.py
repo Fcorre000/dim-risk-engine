@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from ingest import parse_invoice
@@ -83,3 +83,30 @@ async def analyze(request: Request, file: UploadFile = File(...)):
     elapsed = time.perf_counter() - start
 
     return results
+
+
+@app.post("/analyze/stream")
+async def analyze_stream(request: Request, file: UploadFile = File(...)):
+    contents = await file.read()
+    filename = file.filename or "upload.csv"
+
+    try:
+        df = parse_invoice(io.BytesIO(contents), filename)
+    except ValueError as e:
+        return JSONResponse(status_code=422, content={"detail": str(e)})
+
+    clf = request.app.state.clf
+    reg = request.app.state.reg
+    total = len(df)
+
+    import json as _json
+
+    def generate():
+        yield _json.dumps({"__meta__": True, "total": total}) + "\n"
+        chunk_size = 500
+        for start in range(0, total, chunk_size):
+            chunk = df.iloc[start:start + chunk_size]
+            for row in run_inference(chunk, clf, reg):
+                yield _json.dumps(row) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
