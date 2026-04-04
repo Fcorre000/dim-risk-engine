@@ -84,14 +84,20 @@ export default function App() {
               continue;
             }
             allResults.push(obj);
-            // Update UI every 200 rows — await rAF so React actually renders
-            // each step even when all data arrives in a single read() burst
-            if (allResults.length % 200 === 0) {
-              setUploadState(prev => ({
-                ...prev,
-                shipmentCount: allResults.length,
-                results: [...allResults],
-              }));
+
+            // Update progress bar on every row (shipmentCount is cheap to render).
+            // Flush full results array less often to avoid cloning on every row.
+            const len = allResults.length;
+            const flushResults = len % 200 === 0;
+            setUploadState(prev => ({
+              ...prev,
+              shipmentCount: len,
+              ...(flushResults ? { results: [...allResults] } : {}),
+            }));
+
+            // Yield to browser every 50 rows so React can paint the bar growth
+            // even when all data arrives in a single reader.read() burst
+            if (len % 50 === 0) {
               await new Promise(resolve => requestAnimationFrame(resolve));
             }
           } catch { /* skip malformed lines */ }
