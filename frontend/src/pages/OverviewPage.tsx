@@ -70,7 +70,13 @@ export default function OverviewPage({ uploadState, onUpload }: OverviewPageProp
         <KpiCard
           title="Recoverable"
           value={hasData ? formatDollars(kpis.estRecoverable) : '—'}
-          subtitle={hasData ? 'actual − predicted for Unexpected rows' : 'Upload an invoice'}
+          subtitle={
+            uploadState.status === 'uploading'
+              ? 'Final value shown after processing completes'
+              : hasData
+              ? 'actual − predicted for Unexpected rows'
+              : 'Upload an invoice'
+          }
           accent={hasData && kpis.estRecoverable > 0 ? 'emerald' : 'default'}
         />
       </div>
