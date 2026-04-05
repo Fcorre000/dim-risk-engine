@@ -127,3 +127,34 @@ async def analyze_stream(request: Request, file: UploadFile = File(...)):
             yield _json.dumps({"__error__": str(e)}) + "\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
+
+
+@app.get("/demo/stream")
+async def demo_stream(request: Request):
+    """Stream inference results for the built-in 3,000-row sample invoice.
+
+    Response format is identical to /analyze/stream — NDJSON, one object per line,
+    first line is the __meta__ row with total count.
+    """
+    demo_path = pathlib.Path(__file__).parent / "sample_invoice.csv"
+    if not demo_path.exists():
+        return JSONResponse(status_code=404, content={"detail": "Sample invoice not found on server."})
+
+    contents = demo_path.read_bytes()
+    filename = "sample_invoice.csv"
+
+    total = max(0, contents.count(b"\n") - 1)
+
+    clf = request.app.state.clf
+    reg = request.app.state.reg
+
+    def generate():
+        yield _json.dumps({"__meta__": True, "total": total}) + "\n"
+        try:
+            for chunk in parse_invoice_chunks(io.BytesIO(contents), filename, chunksize=1000):
+                for row in run_inference(chunk, clf, reg):
+                    yield _json.dumps(row) + "\n"
+        except ValueError as e:
+            yield _json.dumps({"__error__": str(e)}) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
