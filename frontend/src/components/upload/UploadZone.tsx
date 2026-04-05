@@ -4,9 +4,10 @@ import type { UploadState } from '../../types/api';
 interface UploadZoneProps {
   uploadState: UploadState;
   onUpload: (file: File) => Promise<void>;
+  onDemoLoad: () => Promise<void>;
 }
 
-export default function UploadZone({ uploadState, onUpload }: UploadZoneProps) {
+export default function UploadZone({ uploadState, onUpload, onDemoLoad }: UploadZoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const isUploading = uploadState.status === 'uploading';
@@ -56,16 +57,12 @@ export default function UploadZone({ uploadState, onUpload }: UploadZoneProps) {
     [handleFile]
   );
 
-  const handleLoadSample = useCallback(
-    async (e: React.MouseEvent) => {
-      e.stopPropagation(); // don't trigger the drop-zone click
-      if (isUploading) return;
-      const res = await fetch('/sample-invoice.csv');
-      const blob = await res.blob();
-      const file = new File([blob], 'sample-invoice.csv', { type: 'text/csv' });
-      await onUpload(file);
+  const handleDemoClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation(); // don't trigger drop-zone click
+      if (!isUploading) onDemoLoad();
     },
-    [isUploading, onUpload]
+    [isUploading, onDemoLoad]
   );
 
   return (
@@ -108,8 +105,6 @@ export default function UploadZone({ uploadState, onUpload }: UploadZoneProps) {
             {/* Progress bar */}
             {(() => {
               const { totalCount, shipmentCount } = uploadState;
-              // totalCount null → XLSX or unknown → indeterminate full-width shimmer
-              // totalCount known → deterministic fill starting at 0%
               const indeterminate = totalCount == null;
               const pct = indeterminate
                 ? null
@@ -184,19 +179,22 @@ export default function UploadZone({ uploadState, onUpload }: UploadZoneProps) {
         )}
       </div>
 
-      {/* Sample data button — shown when idle or after completion */}
+      {/* Demo button — shown when idle or after completion */}
       {!isUploading && (
         <div className="flex items-center gap-3">
           <div className="flex-1 h-px bg-gray-800" />
-          <button
-            type="button"
-            onClick={handleLoadSample}
-            className="text-xs text-gray-500 hover:text-blue-400 transition-colors duration-150 whitespace-nowrap"
-          >
-            No data? Try 3,000-row sample invoice
-          </button>
+          <span className="text-xs text-gray-600">or</span>
           <div className="flex-1 h-px bg-gray-800" />
         </div>
+      )}
+      {!isUploading && (
+        <button
+          type="button"
+          onClick={handleDemoClick}
+          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2.5 text-sm font-medium text-gray-300 hover:border-blue-600 hover:bg-gray-700 hover:text-blue-300 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
+        >
+          Try 3,000-row sample invoice
+        </button>
       )}
     </div>
   );

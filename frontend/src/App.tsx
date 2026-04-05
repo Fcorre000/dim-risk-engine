@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { BASE_URL } from './api';
-import type { PageId, UploadState } from './types/api';
+import type { PageId, ShipmentResult, UploadState } from './types/api';
 import MainLayout from './components/layout/MainLayout';
 import OverviewPage from './pages/OverviewPage';
 import AnomaliesPage from './pages/AnomaliesPage';
@@ -20,6 +20,106 @@ const INITIAL_UPLOAD_STATE: UploadState = {
   errorMessage: null,
   streamingKpis: null,
 };
+
+// Reads an NDJSON streaming response and drives uploadState updates.
+// Shared by both the file-upload path and the demo path.
+async function consumeNdjsonStream(
+  response: Response,
+  filename: string,
+  startTime: number,
+  setUploadState: React.Dispatch<React.SetStateAction<UploadState>>,
+) {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let totalCount: number | null = null;
+  const allResults: ShipmentResult[] = [];
+
+  // Incremental KPI counters — avoids O(n²) recomputation from full array
+  let dimFlaggedCount = 0;
+  let disputeCandidates = 0;
+  let estRecoverable = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const obj = JSON.parse(line);
+        if (obj.__meta__) {
+          totalCount = typeof obj.total === 'number' ? obj.total : null;
+          setUploadState(prev => ({ ...prev, totalCount }));
+          continue;
+        }
+        allResults.push(obj);
+
+        // Update incremental KPI counters (O(1) per row)
+        if (obj.dim_flag_probability > 0.5) dimFlaggedCount++;
+        if (obj.dim_anomaly === 'Unexpected') {
+          disputeCandidates++;
+          const gap = obj.actual_net_charge - obj.predicted_net_charge;
+          if (gap > 0) estRecoverable += gap;
+        }
+
+        const len = allResults.length;
+
+        // Every 50 rows: update progress bar + streaming KPIs (cheap — just numbers)
+        if (len % 50 === 0) {
+          const kpis = { dimFlaggedCount, disputeCandidates, estRecoverable: parseFloat(estRecoverable.toFixed(2)) };
+          // Flush full results array every 500 rows for charts; KPIs update every 50
+          const flushResults = len % 500 === 0;
+          // flushSync forces React to commit to DOM synchronously — without it,
+          // React 18's automatic batching can defer the render past our yield point
+          flushSync(() => {
+            setUploadState(prev => ({
+              ...prev,
+              shipmentCount: len,
+              streamingKpis: kpis,
+              ...(flushResults ? { results: [...allResults] } : {}),
+            }));
+          });
+
+          // Yield to browser so it can paint the committed DOM update
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      } catch { /* skip malformed lines */ }
+    }
+  }
+
+  // Flush tail rows past the last 50-row boundary
+  if (allResults.length % 50 !== 0) {
+    flushSync(() => {
+      setUploadState(prev => ({
+        ...prev,
+        shipmentCount: allResults.length,
+        streamingKpis: {
+          dimFlaggedCount,
+          disputeCandidates,
+          estRecoverable: parseFloat(estRecoverable.toFixed(2)),
+        },
+        results: [...allResults],
+      }));
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  setUploadState({
+    status: 'complete',
+    filename,
+    shipmentCount: allResults.length,
+    totalCount,
+    analysisTimeMs: Math.round(performance.now() - startTime),
+    results: allResults,
+    errorMessage: null,
+    streamingKpis: null,
+  });
+}
 
 export default function App() {
   const [activePage, setActivePage] = useState<PageId>('overview');
@@ -63,98 +163,7 @@ export default function App() {
         return;
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let totalCount: number | null = null;
-      const allResults: import('./types/api').ShipmentResult[] = [];
-
-      // Incremental KPI counters — avoids O(n²) recomputation from full array
-      let dimFlaggedCount = 0;
-      let disputeCandidates = 0;
-      let estRecoverable = 0;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const obj = JSON.parse(line);
-            if (obj.__meta__) {
-              totalCount = typeof obj.total === 'number' ? obj.total : null;
-              setUploadState(prev => ({ ...prev, totalCount }));
-              continue;
-            }
-            allResults.push(obj);
-
-            // Update incremental KPI counters (O(1) per row)
-            if (obj.dim_flag_probability > 0.5) dimFlaggedCount++;
-            if (obj.dim_anomaly === 'Unexpected') {
-              disputeCandidates++;
-              const gap = obj.actual_net_charge - obj.predicted_net_charge;
-              if (gap > 0) estRecoverable += gap;
-            }
-
-            const len = allResults.length;
-
-            // Every 50 rows: update progress bar + streaming KPIs (cheap — just numbers)
-            if (len % 50 === 0) {
-              const kpis = { dimFlaggedCount, disputeCandidates, estRecoverable: parseFloat(estRecoverable.toFixed(2)) };
-              // Flush full results array every 500 rows for charts; KPIs update every 50
-              const flushResults = len % 500 === 0;
-              // flushSync forces React to commit to DOM synchronously — without it,
-              // React 18's automatic batching can defer the render past our yield point
-              flushSync(() => {
-                setUploadState(prev => ({
-                  ...prev,
-                  shipmentCount: len,
-                  streamingKpis: kpis,
-                  ...(flushResults ? { results: [...allResults] } : {}),
-                }));
-              });
-
-              // Yield to browser so it can paint the committed DOM update
-              await new Promise(resolve => setTimeout(resolve, 0));
-            }
-          } catch { /* skip malformed lines */ }
-        }
-      }
-
-      // Flush any tail rows past the last 50-row boundary so KPIs don't
-      // appear to freeze just before completion (e.g. 530 rows → last update
-      // was at 500, rows 501-530 never triggered a KPI paint)
-      if (allResults.length % 50 !== 0) {
-        flushSync(() => {
-          setUploadState(prev => ({
-            ...prev,
-            shipmentCount: allResults.length,
-            streamingKpis: {
-              dimFlaggedCount,
-              disputeCandidates,
-              estRecoverable: parseFloat(estRecoverable.toFixed(2)),
-            },
-            results: [...allResults],
-          }));
-        });
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
-
-      setUploadState({
-        status: 'complete',
-        filename: file.name,
-        shipmentCount: allResults.length,
-        totalCount,
-        analysisTimeMs: Math.round(performance.now() - startTime),
-        results: allResults,
-        errorMessage: null,
-        streamingKpis: null,  // clear — OverviewPage computes from final results
-      });
+      await consumeNdjsonStream(response, file.name, startTime, setUploadState);
     } catch {
       setUploadState({
         status: 'error',
@@ -169,10 +178,57 @@ export default function App() {
     }
   };
 
+  const handleDemoLoad = async (): Promise<void> => {
+    setUploadState({
+      status: 'uploading',
+      filename: 'sample-invoice.csv',
+      shipmentCount: null,
+      totalCount: null,
+      analysisTimeMs: null,
+      results: null,
+      errorMessage: null,
+      streamingKpis: null,
+    });
+
+    const startTime = performance.now();
+
+    try {
+      const response = await fetch(`${BASE_URL}/demo/stream`);
+
+      if (!response.ok || !response.body) {
+        const errorBody = await response.json().catch(() => ({ detail: 'Demo load failed' }));
+        setUploadState({
+          status: 'error',
+          filename: 'sample-invoice.csv',
+          shipmentCount: null,
+          totalCount: null,
+          analysisTimeMs: null,
+          results: null,
+          errorMessage: errorBody.detail ?? `Server error ${response.status}`,
+          streamingKpis: null,
+        });
+        return;
+      }
+
+      await consumeNdjsonStream(response, 'sample-invoice.csv', startTime, setUploadState);
+    } catch {
+      setUploadState({
+        status: 'error',
+        filename: 'sample-invoice.csv',
+        shipmentCount: null,
+        totalCount: null,
+        analysisTimeMs: null,
+        results: null,
+        errorMessage: 'Could not reach the backend. Is the API server running on port 8000?',
+        streamingKpis: null,
+      });
+    }
+  };
+
   const renderPage = () => {
     switch (activePage) {
       case 'overview':
-        return <OverviewPage uploadState={uploadState} onUpload={handleUpload} />;
+        return <OverviewPage uploadState={uploadState} onUpload={handleUpload} onDemoLoad={handleDemoLoad} />;
       case 'anomalies':
         return <AnomaliesPage uploadState={uploadState} />;
       case 'by-zone':

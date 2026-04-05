@@ -11,9 +11,10 @@ import AnomalyTable from '../components/table/AnomalyTable';
 interface OverviewPageProps {
   uploadState: UploadState;
   onUpload: (file: File) => Promise<void>;
+  onDemoLoad: () => Promise<void>;
 }
 
-export default function OverviewPage({ uploadState, onUpload }: OverviewPageProps) {
+export default function OverviewPage({ uploadState, onUpload, onDemoLoad }: OverviewPageProps) {
   const results = uploadState.results ?? [];
   // Memoize expensive O(n) computations so they only rerun when results
   // array changes (every 500 rows), not on every 50-row KPI update
@@ -44,7 +45,7 @@ export default function OverviewPage({ uploadState, onUpload }: OverviewPageProp
         </p>
       </div>
 
-      <UploadZone uploadState={uploadState} onUpload={onUpload} />
+      <UploadZone uploadState={uploadState} onUpload={onUpload} onDemoLoad={onDemoLoad} />
 
       <UploadStatusCard uploadState={uploadState} />
 
