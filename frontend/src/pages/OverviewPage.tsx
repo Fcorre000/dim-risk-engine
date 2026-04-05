@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { UploadState } from '../types/api';
 import { computeKpis, computeZoneData, computeMonthlyData, formatDollars } from '../lib/metrics';
 import UploadZone from '../components/upload/UploadZone';
@@ -14,9 +15,11 @@ interface OverviewPageProps {
 
 export default function OverviewPage({ uploadState, onUpload }: OverviewPageProps) {
   const results = uploadState.results ?? [];
-  const computedKpis = computeKpis(results);
-  const zoneData = computeZoneData(results);
-  const monthlyData = computeMonthlyData(results);
+  // Memoize expensive O(n) computations so they only rerun when results
+  // array changes (every 500 rows), not on every 50-row KPI update
+  const computedKpis = useMemo(() => computeKpis(results), [results]);
+  const zoneData = useMemo(() => computeZoneData(results), [results]);
+  const monthlyData = useMemo(() => computeMonthlyData(results), [results]);
 
   // During streaming, use incremental KPIs (updated every 50 rows, O(1) per update)
   // instead of recomputing from the full results array which causes O(n²) total work.
