@@ -24,6 +24,16 @@ candidates.
   charged DIM=Y → "Unexpected" → dispute candidate
 - Cost anomaly: actual charge > predicted * 1.25 → "Review"
 
+## Demo / sample data button
+- "Try 3,000-row sample invoice" button lives in `UploadZone` — calls `onDemoLoad` prop
+- `onDemoLoad` in `App.tsx` hits `GET /demo/stream` on the backend (no file upload)
+- `/demo/stream` in `api/main.py` reads `api/sample_invoice.csv` server-side and streams
+  NDJSON in the same format as `/analyze/stream`
+- `api/sample_invoice.csv` is the first 3,000 rows of the real invoice — UTF-8 (no BOM),
+  LF line endings, committed to git via `.gitignore` exception `!api/sample_invoice.csv`
+- Do NOT use a client-side fetch-blob-File approach for the demo — it breaks on the
+  deployed static site because the CSV must be served by the backend, not the frontend
+
 ## Streaming architecture
 - `/analyze/stream` returns NDJSON (one JSON object per line)
 - First line is always `{"__meta__": true, "total": N}` where N is row count
@@ -41,13 +51,20 @@ candidates.
 - XLSX row counting uses openpyxl `read_only` mode (`ws.max_row`) so the
   frontend progress bar works for both CSV and XLSX uploads
 
-## Frontend progress bar
+## Frontend progress bar & streaming KPIs
 - Progress bar fills proportionally when `totalCount` is known (CSV/XLSX)
 - Falls back to indeterminate shimmer when `totalCount` is null
-- `shipmentCount` updates on every row; full results array clones every
-  200 rows to avoid expensive renders
-- `requestAnimationFrame` yield every 50 rows to force React to paint
-  intermediate states (React 18 batches synchronous setState calls)
+- KPI counters (dimFlaggedCount, disputeCandidates, estRecoverable) are accumulated
+  incrementally (O(1) per row) in `streamingKpis` state — never recomputed from the
+  full array during streaming
+- `flushSync` from `react-dom` wraps each `setUploadState` call every 50 rows — this
+  forces React 18 to commit to the DOM synchronously before the stream loop continues.
+  Without it, React 18's automatic batching defers renders past the yield point.
+- `setTimeout(resolve, 0)` after each flushSync yields to the browser to actually paint
+- Full results array flushed every 500 rows (for charts); tail rows flushed once after
+  the stream ends so KPIs don't freeze near completion
+- `OverviewPage` wraps computeKpis/computeZoneData/computeMonthlyData in `useMemo`
+  so they only rerun when `results` changes, not on every 50-row KPI update
 
 ## Source data reference
 The real FedEx invoice is `FedEx_ShipmentDetail.xlsx` (root dir, ~50k rows).
