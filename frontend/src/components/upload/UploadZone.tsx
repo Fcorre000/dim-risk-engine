@@ -56,118 +56,147 @@ export default function UploadZone({ uploadState, onUpload }: UploadZoneProps) {
     [handleFile]
   );
 
+  const handleLoadSample = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation(); // don't trigger the drop-zone click
+      if (isUploading) return;
+      const res = await fetch('/sample-invoice.csv');
+      const blob = await res.blob();
+      const file = new File([blob], 'sample-invoice.csv', { type: 'text/csv' });
+      await onUpload(file);
+    },
+    [isUploading, onUpload]
+  );
+
   return (
-    <div
-      role="button"
-      tabIndex={isUploading ? -1 : 0}
-      aria-label="Upload invoice file — drag and drop or click to select"
-      aria-disabled={isUploading}
-      onClick={handleClick}
-      onDrop={handleDrop}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') handleClick();
-      }}
-      className={[
-        'relative rounded-xl border-2 border-dashed p-10 text-center transition-colors duration-200',
-        'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950',
-        isUploading
-          ? 'border-gray-700 bg-gray-900 cursor-not-allowed opacity-60'
-          : isDragOver
-          ? 'border-blue-500 bg-blue-950/20'
-          : 'border-gray-700 bg-gray-900 hover:border-gray-500 hover:bg-gray-800/50',
-      ].join(' ')}
-    >
-      {/* Hidden file input */}
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".xlsx,.csv"
-        className="sr-only"
-        onChange={handleInputChange}
-        aria-hidden="true"
-        tabIndex={-1}
-      />
+    <div className="space-y-3">
+      <div
+        role="button"
+        tabIndex={isUploading ? -1 : 0}
+        aria-label="Upload invoice file — drag and drop or click to select"
+        aria-disabled={isUploading}
+        onClick={handleClick}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') handleClick();
+        }}
+        className={[
+          'relative rounded-xl border-2 border-dashed p-10 text-center transition-colors duration-200',
+          'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950',
+          isUploading
+            ? 'border-gray-700 bg-gray-900 cursor-not-allowed opacity-60'
+            : isDragOver
+            ? 'border-blue-500 bg-blue-950/20'
+            : 'border-gray-700 bg-gray-900 hover:border-gray-500 hover:bg-gray-800/50',
+        ].join(' ')}
+      >
+        {/* Hidden file input */}
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".xlsx,.csv"
+          className="sr-only"
+          onChange={handleInputChange}
+          aria-hidden="true"
+          tabIndex={-1}
+        />
 
-      {isUploading ? (
-        <div className="flex flex-col items-center gap-3 w-full px-2">
-          {/* Progress bar */}
-          {(() => {
-            const { totalCount, shipmentCount } = uploadState;
-            // totalCount null → XLSX or unknown → indeterminate full-width shimmer
-            // totalCount known → deterministic fill starting at 0%
-            const indeterminate = totalCount == null;
-            const pct = indeterminate
-              ? null
-              : shipmentCount != null
-                ? Math.min(Math.round((shipmentCount / totalCount) * 100), 99)
-                : 0;
+        {isUploading ? (
+          <div className="flex flex-col items-center gap-3 w-full px-2">
+            {/* Progress bar */}
+            {(() => {
+              const { totalCount, shipmentCount } = uploadState;
+              // totalCount null → XLSX or unknown → indeterminate full-width shimmer
+              // totalCount known → deterministic fill starting at 0%
+              const indeterminate = totalCount == null;
+              const pct = indeterminate
+                ? null
+                : shipmentCount != null
+                  ? Math.min(Math.round((shipmentCount / totalCount) * 100), 99)
+                  : 0;
 
-            return (
-              <div
-                role="progressbar"
-                aria-label="Analyzing invoice"
-                aria-valuenow={pct ?? undefined}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-busy="true"
-                className="relative w-full h-1.5 rounded-full bg-gray-800 overflow-hidden"
-              >
+              return (
                 <div
-                  className="absolute inset-y-0 left-0 rounded-full bg-blue-700 overflow-hidden"
-                  style={{
-                    width: indeterminate ? '100%' : `${pct}%`,
-                    transition: 'width 300ms ease-out',
-                  }}
+                  role="progressbar"
+                  aria-label="Analyzing invoice"
+                  aria-valuenow={pct ?? undefined}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-busy="true"
+                  className="relative w-full h-1.5 rounded-full bg-gray-800 overflow-hidden"
                 >
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-300/50 to-transparent animate-shimmer" />
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-full bg-blue-700 overflow-hidden"
+                    style={{
+                      width: indeterminate ? '100%' : `${pct}%`,
+                      transition: 'width 300ms ease-out',
+                    }}
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-300/50 to-transparent animate-shimmer" />
+                  </div>
                 </div>
-              </div>
-            );
-          })()}
-          <div className="flex items-baseline justify-between w-full">
-            <p className="text-sm text-gray-400">Analyzing invoice…</p>
-            {uploadState.shipmentCount != null && (
-              <p className="text-xs tabular-nums text-blue-400">
-                {uploadState.totalCount != null
-                  ? `${uploadState.shipmentCount.toLocaleString()} / ${uploadState.totalCount.toLocaleString()} rows`
-                  : `${uploadState.shipmentCount.toLocaleString()} rows`}
+              );
+            })()}
+            <div className="flex items-baseline justify-between w-full">
+              <p className="text-sm text-gray-400">Analyzing invoice…</p>
+              {uploadState.shipmentCount != null && (
+                <p className="text-xs tabular-nums text-blue-400">
+                  {uploadState.totalCount != null
+                    ? `${uploadState.shipmentCount.toLocaleString()} / ${uploadState.totalCount.toLocaleString()} rows`
+                    : `${uploadState.shipmentCount.toLocaleString()} rows`}
+                </p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-10 w-10 text-gray-500"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1}
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+              />
+            </svg>
+            <div>
+              <p className="text-sm font-medium text-gray-300">
+                {isDragOver ? 'Drop to analyze' : 'Drag & drop your invoice'}
               </p>
-            )}
+              <p className="text-xs text-gray-500 mt-1">or click to browse — .xlsx or .csv</p>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="flex flex-col items-center gap-3">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-10 w-10 text-gray-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1}
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-            />
-          </svg>
-          <div>
-            <p className="text-sm font-medium text-gray-300">
-              {isDragOver ? 'Drop to analyze' : 'Drag & drop your invoice'}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">or click to browse — .xlsx or .csv</p>
-          </div>
-        </div>
-      )}
+        )}
 
-      {/* Error message near the field (SKILL.md error-feedback rule) */}
-      {uploadState.status === 'error' && uploadState.errorMessage && (
-        <p role="alert" className="mt-4 text-sm text-rose-400">
-          {uploadState.errorMessage}
-        </p>
+        {/* Error message near the field (SKILL.md error-feedback rule) */}
+        {uploadState.status === 'error' && uploadState.errorMessage && (
+          <p role="alert" className="mt-4 text-sm text-rose-400">
+            {uploadState.errorMessage}
+          </p>
+        )}
+      </div>
+
+      {/* Sample data button — shown when idle or after completion */}
+      {!isUploading && (
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-px bg-gray-800" />
+          <button
+            type="button"
+            onClick={handleLoadSample}
+            className="text-xs text-gray-500 hover:text-blue-400 transition-colors duration-150 whitespace-nowrap"
+          >
+            No data? Try 3,000-row sample invoice
+          </button>
+          <div className="flex-1 h-px bg-gray-800" />
+        </div>
       )}
     </div>
   );
