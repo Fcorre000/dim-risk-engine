@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { flushSync } from 'react-dom';
 import { BASE_URL } from './api';
 import type { PageId, UploadState } from './types/api';
 import MainLayout from './components/layout/MainLayout';
@@ -107,18 +108,41 @@ export default function App() {
               const kpis = { dimFlaggedCount, disputeCandidates, estRecoverable: parseFloat(estRecoverable.toFixed(2)) };
               // Flush full results array every 500 rows for charts; KPIs update every 50
               const flushResults = len % 500 === 0;
-              setUploadState(prev => ({
-                ...prev,
-                shipmentCount: len,
-                streamingKpis: kpis,
-                ...(flushResults ? { results: [...allResults] } : {}),
-              }));
+              // flushSync forces React to commit to DOM synchronously — without it,
+              // React 18's automatic batching can defer the render past our yield point
+              flushSync(() => {
+                setUploadState(prev => ({
+                  ...prev,
+                  shipmentCount: len,
+                  streamingKpis: kpis,
+                  ...(flushResults ? { results: [...allResults] } : {}),
+                }));
+              });
 
-              // Yield to browser so React can paint progress bar + KPIs
+              // Yield to browser so it can paint the committed DOM update
               await new Promise(resolve => setTimeout(resolve, 0));
             }
           } catch { /* skip malformed lines */ }
         }
+      }
+
+      // Flush any tail rows past the last 50-row boundary so KPIs don't
+      // appear to freeze just before completion (e.g. 530 rows → last update
+      // was at 500, rows 501-530 never triggered a KPI paint)
+      if (allResults.length % 50 !== 0) {
+        flushSync(() => {
+          setUploadState(prev => ({
+            ...prev,
+            shipmentCount: allResults.length,
+            streamingKpis: {
+              dimFlaggedCount,
+              disputeCandidates,
+              estRecoverable: parseFloat(estRecoverable.toFixed(2)),
+            },
+            results: [...allResults],
+          }));
+        });
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
 
       setUploadState({
