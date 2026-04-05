@@ -136,6 +136,8 @@ Traditional upload-then-wait APIs block the UI until the entire file is processe
 
 ## Getting Started
 
+Don't have a FedEx invoice handy? The dashboard includes a **"Try 3,000-row sample invoice"** button on the upload screen that loads real shipment data instantly — no file needed.
+
 ### Prerequisites
 
 - Python 3.10+
@@ -175,9 +177,10 @@ pytest
 ```
 dim-risk-engine/
 ├── api/
-│   ├── main.py              # FastAPI app — /health, /analyze, /analyze/stream
+│   ├── main.py              # FastAPI app — /health, /analyze, /analyze/stream, /demo/stream
 │   ├── ingest.py            # Invoice parsing, feature engineering, chunked generator
 │   ├── inference.py         # XGBoost inference + anomaly flag logic
+│   ├── sample_invoice.csv   # 3,000-row sample — powers the demo button
 │   ├── requirements.txt
 │   └── tests/
 ├── frontend/
@@ -232,6 +235,10 @@ Upload a `.csv` or `.xlsx` FedEx invoice. Returns a JSON array of results.
 ### `POST /analyze/stream`
 
 Same input as `/analyze`, but returns **NDJSON** for streaming consumption. First line is metadata, subsequent lines are individual shipment results.
+
+### `GET /demo/stream`
+
+Streams results for the built-in 3,000-row sample invoice — no file upload needed. Response format is identical to `/analyze/stream`. Powers the "Try 3,000-row sample invoice" button in the dashboard.
 
 ---
 
