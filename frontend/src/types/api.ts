@@ -10,8 +10,12 @@ export interface ShipmentResult {
   dim_flag_probability: number;     // 0.0 to 1.0
   actual_net_charge: number;        // dollars, from invoice
   predicted_net_charge: number;     // dollars, model output
+  predicted_net_charge_low: number;  // 5th percentile lower bound (dollars)
+  predicted_net_charge_high: number; // 95th percentile upper bound (dollars)
   dim_anomaly: 'Unexpected' | null;
+  dim_confidence: number | null;     // P(DIM=N) when Unexpected, else null
   cost_anomaly: 'Review' | null;
+  cost_confidence: 'High' | null;    // "High" when actual > pred_high, else null
 }
 
 export type PageId = 'overview' | 'anomalies' | 'by-zone' | 'by-sku' | 'trends' | 'export';

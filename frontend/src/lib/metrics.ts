@@ -39,10 +39,11 @@ export function computeKpis(results: ShipmentResult[]): KpiData {
   // Dispute candidates: rows where DIM anomaly is Unexpected
   const disputeCandidates = results.filter((r) => r.dim_anomaly === 'Unexpected').length;
 
-  // Recoverable: for Unexpected DIM rows, gap = actual billed - model predicted
+  // Recoverable: for Unexpected DIM rows, gap = actual billed - upper prediction bound
+  // Using predicted_net_charge_high gives a more conservative (credible) estimate
   const estRecoverable = results
     .filter((r) => r.dim_anomaly === 'Unexpected')
-    .reduce((sum, r) => sum + Math.max(0, r.actual_net_charge - r.predicted_net_charge), 0);
+    .reduce((sum, r) => sum + Math.max(0, r.actual_net_charge - r.predicted_net_charge_high), 0);
 
   return {
     totalShipments,

@@ -18,14 +18,17 @@ export function getDisputeCandidates(results: ShipmentResult[]): ShipmentResult[
  * Returns a string with CRLF line endings per RFC 4180.
  */
 export function generateDisputeCandidatesCsv(candidates: ShipmentResult[]): string {
-  const HEADER = 'Tracking #,Service,Dims (LxWxH),Weight (lbs),Zone,Flag type,Actual $,Predicted $,Gap $';
+  const HEADER = 'Tracking #,Service,Dims (LxWxH),Weight (lbs),Zone,Flag type,Actual $,Predicted Low $,Predicted $,Predicted High $,Gap $,Confidence';
   const rows = candidates.map((r) => {
     const flagType = r.dim_anomaly ?? r.cost_anomaly ?? '';
     const dims = `${r.dim_length}x${r.dim_width}x${r.dim_height}`;
     const actual = r.actual_net_charge.toFixed(2);
+    const predLow = r.predicted_net_charge_low.toFixed(2);
     const predicted = r.predicted_net_charge.toFixed(2);
-    const gap = (r.actual_net_charge - r.predicted_net_charge).toFixed(2);
-    return `"${r.tracking_number}",${r.service_type},${dims},${r.weight_lbs},${r.zone},${flagType},${actual},${predicted},${gap}`;
+    const predHigh = r.predicted_net_charge_high.toFixed(2);
+    const gap = (r.actual_net_charge - r.predicted_net_charge_high).toFixed(2);
+    const confidence = r.dim_confidence != null ? `${Math.round(r.dim_confidence * 100)}%` : (r.cost_confidence ?? '');
+    return `"${r.tracking_number}",${r.service_type},${dims},${r.weight_lbs},${r.zone},${flagType},${actual},${predLow},${predicted},${predHigh},${gap},${confidence}`;
   });
   return [HEADER, ...rows].join('\r\n');
 }

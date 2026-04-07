@@ -15,7 +15,7 @@ from pydantic import BaseModel
 import json as _json
 
 from ingest import parse_invoice, parse_invoice_chunks
-from inference import run_inference
+from inference import run_inference, load_residual_quantiles
 
 warnings.filterwarnings("ignore", message=".*Booster.*", category=UserWarning)
 
@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
         app.state.clf = pickle.load(f)
     with open(models_dir / "xgb_regressor.pkl", "rb") as f:
         app.state.reg = pickle.load(f)
+    app.state.residual_quantiles = load_residual_quantiles(models_dir)
     yield
 
 
@@ -60,8 +61,12 @@ class ShipmentResult(BaseModel):
     dim_flag_probability: float    # P(DIM=Y), 0.0-1.0
     actual_net_charge: float       # dollars, from Net Charge Billed Currency column
     predicted_net_charge: float    # dollars, after np.expm1()
+    predicted_net_charge_low: float   # 5th percentile lower bound (dollars)
+    predicted_net_charge_high: float  # 95th percentile upper bound (dollars)
     dim_anomaly: Optional[str]     # "Unexpected" or None
+    dim_confidence: Optional[float]   # P(DIM=N) when dim_anomaly is Unexpected, else None
     cost_anomaly: Optional[str]    # "Review" or None
+    cost_confidence: Optional[str]    # "High" if actual > pred_high, else None
 
 
 @app.get("/health")
@@ -87,7 +92,7 @@ async def analyze(request: Request, file: UploadFile = File(...)):
         return JSONResponse(status_code=422, content={"detail": str(e)})
 
     # Run inference
-    results = run_inference(df, request.app.state.clf, request.app.state.reg)
+    results = run_inference(df, request.app.state.clf, request.app.state.reg, request.app.state.residual_quantiles)
 
     elapsed = time.perf_counter() - start
 
@@ -116,12 +121,13 @@ async def analyze_stream(request: Request, file: UploadFile = File(...)):
 
     clf = request.app.state.clf
     reg = request.app.state.reg
+    rq = request.app.state.residual_quantiles
 
     def generate():
         yield _json.dumps({"__meta__": True, "total": total}) + "\n"
         try:
             for chunk in parse_invoice_chunks(io.BytesIO(contents), filename, chunksize=1000):
-                for row in run_inference(chunk, clf, reg):
+                for row in run_inference(chunk, clf, reg, rq):
                     yield _json.dumps(row) + "\n"
         except ValueError as e:
             yield _json.dumps({"__error__": str(e)}) + "\n"
@@ -147,12 +153,13 @@ async def demo_stream(request: Request):
 
     clf = request.app.state.clf
     reg = request.app.state.reg
+    rq = request.app.state.residual_quantiles
 
     def generate():
         yield _json.dumps({"__meta__": True, "total": total}) + "\n"
         try:
             for chunk in parse_invoice_chunks(io.BytesIO(contents), filename, chunksize=1000):
-                for row in run_inference(chunk, clf, reg):
+                for row in run_inference(chunk, clf, reg, rq):
                     yield _json.dumps(row) + "\n"
         except ValueError as e:
             yield _json.dumps({"__error__": str(e)}) + "\n"

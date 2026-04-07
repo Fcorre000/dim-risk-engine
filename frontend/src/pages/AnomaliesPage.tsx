@@ -6,7 +6,7 @@ interface AnomaliesPageProps {
   uploadState: UploadState;
 }
 
-type SortColumn = 'flag' | 'actual' | 'gap';
+type SortColumn = 'flag' | 'actual' | 'gap' | 'confidence';
 type SortDir = 'asc' | 'desc';
 
 function flagOrder(r: ShipmentResult): number {
@@ -15,18 +15,30 @@ function flagOrder(r: ShipmentResult): number {
   return 2;
 }
 
-function FlagBadge({ dimAnomaly, costAnomaly }: { dimAnomaly: ShipmentResult['dim_anomaly']; costAnomaly: ShipmentResult['cost_anomaly'] }) {
-  if (dimAnomaly === 'Unexpected') {
+function confidenceScore(r: ShipmentResult): number {
+  if (r.dim_anomaly === 'Unexpected' && r.dim_confidence != null) return r.dim_confidence;
+  if (r.cost_anomaly === 'Review') return r.cost_confidence === 'High' ? 1 : 0.5;
+  return 0;
+}
+
+function FlagBadge({ row }: { row: ShipmentResult }) {
+  if (row.dim_anomaly === 'Unexpected') {
     return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30 whitespace-nowrap">
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30 whitespace-nowrap">
         Unexpected
+        {row.dim_confidence != null && (
+          <span className="text-rose-400/70 font-normal">{Math.round(row.dim_confidence * 100)}%</span>
+        )}
       </span>
     );
   }
-  if (costAnomaly === 'Review') {
+  if (row.cost_anomaly === 'Review') {
     return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30 whitespace-nowrap">
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30 whitespace-nowrap">
         Review
+        {row.cost_confidence && (
+          <span className="text-amber-400/70 font-normal">&middot; {row.cost_confidence}</span>
+        )}
       </span>
     );
   }
@@ -41,7 +53,7 @@ function SortIcon({ col, sortCol, sortDir }: { col: SortColumn; sortCol: SortCol
 }
 
 export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
-  const [sortCol, setSortCol] = useState<SortColumn>('gap');
+  const [sortCol, setSortCol] = useState<SortColumn>('confidence');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   const results = uploadState.results ?? [];
@@ -59,9 +71,11 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
         cmp = flagOrder(a) - flagOrder(b);
       } else if (sortCol === 'actual') {
         cmp = a.actual_net_charge - b.actual_net_charge;
+      } else if (sortCol === 'confidence') {
+        cmp = confidenceScore(a) - confidenceScore(b);
       } else {
-        const gapA = a.actual_net_charge - a.predicted_net_charge;
-        const gapB = b.actual_net_charge - b.predicted_net_charge;
+        const gapA = a.actual_net_charge - a.predicted_net_charge_high;
+        const gapB = b.actual_net_charge - b.predicted_net_charge_high;
         cmp = gapA - gapB;
       }
       return sortDir === 'asc' ? cmp : -cmp;
@@ -108,8 +122,9 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
         <div className="px-6 py-4 border-b border-gray-800">
           <p className="text-xs text-gray-500">
             Click <span className="text-gray-400">Flag</span>,{' '}
-            <span className="text-gray-400">Actual $</span>, or{' '}
-            <span className="text-gray-400">Gap $</span> headers to sort
+            <span className="text-gray-400">Actual $</span>,{' '}
+            <span className="text-gray-400">Gap $</span>, or{' '}
+            <span className="text-gray-400">Confidence</span> headers to sort
           </p>
         </div>
 
@@ -130,7 +145,7 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                 >
                   Actual $<SortIcon col="actual" sortCol={sortCol} sortDir={sortDir} />
                 </th>
-                <th scope="col" className={thBase}>Predicted $</th>
+                <th scope="col" className={thBase}>Predicted Range</th>
                 <th
                   scope="col"
                   className={thSortable}
@@ -147,18 +162,27 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                 >
                   Flag<SortIcon col="flag" sortCol={sortCol} sortDir={sortDir} />
                 </th>
+                <th
+                  scope="col"
+                  className={thSortable}
+                  onClick={() => handleSort('confidence')}
+                  aria-sort={sortCol === 'confidence' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                >
+                  Confidence<SortIcon col="confidence" sortCol={sortCol} sortDir={sortDir} />
+                </th>
               </tr>
             </thead>
             <tbody>
               {sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={10} className="px-4 py-8 text-center text-sm text-gray-500">
                     No flagged shipments found
                   </td>
                 </tr>
               ) : (
                 sortedRows.map((row, idx) => {
-                  const gap = row.actual_net_charge - row.predicted_net_charge;
+                  const gap = row.actual_net_charge - row.predicted_net_charge_high;
+                  const conf = confidenceScore(row);
                   return (
                     <tr
                       key={row.tracking_number}
@@ -187,13 +211,18 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                         {formatDollars(row.actual_net_charge)}
                       </td>
                       <td className="px-4 py-3 text-gray-400 tabular-nums whitespace-nowrap">
-                        {formatDollars(row.predicted_net_charge)}
+                        <span>{formatDollars(row.predicted_net_charge_low)}</span>
+                        <span className="text-gray-600 mx-0.5">&ndash;</span>
+                        <span>{formatDollars(row.predicted_net_charge_high)}</span>
                       </td>
                       <td className={`px-4 py-3 tabular-nums font-medium whitespace-nowrap ${gap > 0 ? 'text-rose-400' : gap < 0 ? 'text-emerald-400' : 'text-gray-500'}`}>
                         {gap >= 0 ? '+' : ''}{formatDollars(gap)}
                       </td>
                       <td className="px-4 py-3">
-                        <FlagBadge dimAnomaly={row.dim_anomaly} costAnomaly={row.cost_anomaly} />
+                        <FlagBadge row={row} />
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-gray-400 whitespace-nowrap">
+                        {conf > 0 ? `${Math.round(conf * 100)}%` : '—'}
                       </td>
                     </tr>
                   );

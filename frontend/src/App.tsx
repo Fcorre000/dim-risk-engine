@@ -63,7 +63,7 @@ async function consumeNdjsonStream(
         if (obj.dim_flag_probability > 0.5) dimFlaggedCount++;
         if (obj.dim_anomaly === 'Unexpected') {
           disputeCandidates++;
-          const gap = obj.actual_net_charge - obj.predicted_net_charge;
+          const gap = obj.actual_net_charge - obj.predicted_net_charge_high;
           if (gap > 0) estRecoverable += gap;
         }
 

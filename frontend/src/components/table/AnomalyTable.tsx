@@ -14,18 +14,29 @@ interface FlagBadgeProps {
   costAnomaly: ShipmentResult['cost_anomaly'];
 }
 
-function FlagBadge({ dimAnomaly, costAnomaly }: FlagBadgeProps) {
+interface FlagBadgeExtProps extends FlagBadgeProps {
+  dimConfidence: number | null;
+  costConfidence: string | null;
+}
+
+function FlagBadge({ dimAnomaly, costAnomaly, dimConfidence, costConfidence }: FlagBadgeExtProps) {
   if (dimAnomaly === 'Unexpected') {
     return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30 whitespace-nowrap">
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30 whitespace-nowrap">
         Unexpected
+        {dimConfidence != null && (
+          <span className="text-rose-400/70 font-normal">{Math.round(dimConfidence * 100)}%</span>
+        )}
       </span>
     );
   }
   if (costAnomaly === 'Review') {
     return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30 whitespace-nowrap">
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30 whitespace-nowrap">
         Review
+        {costConfidence && (
+          <span className="text-amber-400/70 font-normal">&middot; {costConfidence}</span>
+        )}
       </span>
     );
   }
@@ -67,21 +78,21 @@ function FlagInfoPopover() {
 
           <div className="mb-3">
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30 mb-1.5">
-              Unexpected
+              Unexpected 87%
             </span>
             <p className="text-gray-400 leading-relaxed">
               The model predicted FedEx would <em>not</em> apply DIM billing, but they charged DIM anyway.
-              These are your strongest dispute candidates — the algorithm disagrees with how FedEx rated the shipment.
+              The percentage shows how confident the model is — higher % = stronger dispute case.
             </p>
           </div>
 
           <div>
             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30 mb-1.5">
-              Review
+              Review &middot; High
             </span>
             <p className="text-gray-400 leading-relaxed">
-              The actual charge was more than 25% above the model's predicted net charge.
-              May indicate a billing error or rate discrepancy worth investigating.
+              The actual charge exceeded the model's 90% prediction interval upper bound.
+              The predicted range shows the expected cost window — charges above it warrant investigation.
             </p>
           </div>
         </div>
@@ -158,7 +169,7 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
         <table className="w-full text-sm" role="table" aria-label="Anomaly detail table">
           <thead>
             <tr className="border-b border-gray-800">
-              {['Tracking #', 'Service', 'Dims', 'Weight', 'Zone', 'Actual $', 'Predicted $', 'Flag'].map(
+              {['Tracking #', 'Service', 'Dims', 'Weight', 'Zone', 'Actual $', 'Predicted Range', 'Flag'].map(
                 (col) => (
                   <th
                     key={col}
@@ -207,10 +218,12 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
                       {formatDollars(row.actual_net_charge)}
                     </td>
                     <td className="px-4 py-3 text-gray-400 tabular-nums whitespace-nowrap">
-                      {formatDollars(row.predicted_net_charge)}
+                      <span>{formatDollars(row.predicted_net_charge_low)}</span>
+                      <span className="text-gray-600 mx-0.5">&ndash;</span>
+                      <span>{formatDollars(row.predicted_net_charge_high)}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <FlagBadge dimAnomaly={row.dim_anomaly} costAnomaly={row.cost_anomaly} />
+                      <FlagBadge dimAnomaly={row.dim_anomaly} costAnomaly={row.cost_anomaly} dimConfidence={row.dim_confidence} costConfidence={row.cost_confidence} />
                     </td>
                   </tr>
               ))
