@@ -223,11 +223,20 @@ Upload a `.csv` or `.xlsx` FedEx invoice. Returns a JSON array of results.
 [
   {
     "tracking_number": "7489...",
+    "service_type": "FEDEX_GROUND",
+    "weight_lbs": 12.0,
+    "dim_length": 24, "dim_width": 18, "dim_height": 12,
+    "zone": "05",
+    "shipment_date": "2024-01-15",
     "dim_flag_probability": 0.8231,
     "actual_net_charge": 42.50,
     "predicted_net_charge": 35.12,
+    "predicted_net_charge_low": 30.55,
+    "predicted_net_charge_high": 47.82,
     "dim_anomaly": null,
-    "cost_anomaly": "Review"
+    "dim_confidence": null,
+    "cost_anomaly": "Review",
+    "cost_confidence": "High"
   }
 ]
 ```
@@ -250,6 +259,35 @@ The app deploys to [Render](https://render.com) via the included `render.yaml`:
 - **dim-risk-frontend** — Static site (Vite build output)
 
 Set `VITE_API_URL` on the frontend service to point to the API URL, and `CORS_ORIGINS` on the API service to the frontend URL.
+
+---
+
+## Changelog
+
+### 2026-04-07 — Confidence intervals on anomaly flags
+- Each shipment now includes a **90% prediction interval** (`predicted_net_charge_low` / `predicted_net_charge_high`) derived from calibrated log-space residual quantiles
+- DIM anomaly badges show model confidence percentage (e.g. "Unexpected 87%") — higher % = stronger dispute case
+- Cost anomaly threshold changed from `actual > predicted × 1.25` to `actual > predicted_high` (upper bound of the prediction interval) — more statistically grounded
+- Recoverable estimate is now conservative: `actual − predicted_high` instead of `actual − predicted`
+- Anomalies table gains a sortable **Confidence** column (default sort)
+- New `dim_confidence` and `cost_confidence` fields in every API response row
+
+### 2026-04-05 — Sample invoice test button
+- Added **"Try 3,000-row sample invoice"** button to the upload screen — loads real shipment data without requiring a file upload
+- Backend serves the sample via `GET /demo/stream` reading `api/sample_invoice.csv` server-side (avoids broken blob-fetch on the static site deploy)
+
+### 2026-04-03 — Streaming progress bar
+- Upload progress bar now fills proportionally for both CSV and XLSX files (XLSX row count via openpyxl `read_only` mode)
+- Falls back to indeterminate shimmer when row count is unavailable
+- Live KPI counters (DIM rate, dispute candidates, recoverable $) update incrementally during streaming without full recompute
+
+### 2026-04-04 — Real shipment fields
+- Removed fake placeholder functions (`deriveDims`, `deriveWeight`, `deriveZone`, `deriveService`, `deriveMonth`) that generated synthetic data from tracking number hashes
+- All display fields (dimensions, weight, zone, service type, shipment date) now come from actual invoice columns parsed by the backend
+
+### 2026-04-03 — NDJSON streaming endpoint
+- Added `POST /analyze/stream` endpoint that streams results as NDJSON — one shipment per line, preceded by a `__meta__` row with total count
+- Frontend reads via `ReadableStream` API for real-time rendering
 
 ---
 

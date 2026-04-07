@@ -22,7 +22,22 @@ candidates.
 ## Anomaly logic
 - DIM flag anomaly: model predicts DIM=N probability > 0.6 but FedEx
   charged DIM=Y → "Unexpected" → dispute candidate
-- Cost anomaly: actual charge > predicted * 1.25 → "Review"
+  - `dim_confidence` = P(DIM=N) from the classifier (e.g. 0.87 → displayed as "87%")
+- Cost anomaly: actual charge > predicted_net_charge_high (90th-percentile upper bound) → "Review"
+  - Previously was `actual > predicted * 1.25`; now uses the calibrated upper bound
+  - `cost_confidence` = "High" (fixed string for now)
+
+## Prediction intervals (residual-based)
+- `models/residual_quantiles.json` stores calibrated log-space residual quantiles:
+  `{"q05": -0.134852, "q95": 0.325461}` — generated once by `scripts/calibrate_residuals.py`
+- At inference time: `pred_low = expm1(log_pred + q05)`, `pred_high = expm1(log_pred + q95)`
+- These form a ~90% prediction interval for the net charge
+- `load_residual_quantiles(models_dir)` in `api/inference.py` loads this file with
+  fallback defaults so the API works even if the JSON is missing
+- Do NOT re-run calibration unless you have a new calibration dataset — the quantiles
+  are stable across the sample invoice (2,999 rows)
+- Recoverable estimate uses `actual - predicted_net_charge_high` (conservative — only
+  counts overcharge above the upper bound, not the point prediction)
 
 ## Demo / sample data button
 - "Try 3,000-row sample invoice" button lives in `UploadZone` — calls `onDemoLoad` prop
