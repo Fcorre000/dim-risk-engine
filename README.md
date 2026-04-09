@@ -264,6 +264,10 @@ Set `VITE_API_URL` on the frontend service to point to the API URL, and `CORS_OR
 
 ## Changelog
 
+### 2026-04-09 — Cost anomaly confidence grading
+- `cost_confidence` is now a computed severity grade instead of a hardcoded `"High"`
+- Grade is based on how far the actual charge exceeds the CI upper bound, measured in CI widths: **Low** (< 0.5×), **Medium** (0.5–1×), **High** (1–2×), **Critical** (≥ 2×)
+
 ### 2026-04-09 — Cold start UX + keep-alive
 - First-time visitors after server inactivity now see a **"Server warming up"** banner instead of a silent spinner — disappears automatically once the server responds
 - Added UptimeRobot keep-alive ping on `/health` every 5 minutes to prevent Render free-tier spin-down in the first place
