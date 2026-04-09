@@ -57,6 +57,9 @@ async function consumeNdjsonStream(
           setUploadState(prev => ({ ...prev, totalCount }));
           continue;
         }
+        if (obj.__error__) {
+          throw new Error(obj.__error__);
+        }
         allResults.push(obj);
 
         // Update incremental KPI counters (O(1) per row)
@@ -178,7 +181,7 @@ export default function App() {
       }
 
       await consumeNdjsonStream(response, file.name, startTime, setUploadState);
-    } catch {
+    } catch (e) {
       setUploadState({
         status: 'error',
         filename: file.name,
@@ -186,7 +189,7 @@ export default function App() {
         totalCount: null,
         analysisTimeMs: null,
         results: null,
-        errorMessage: 'Could not reach the backend. Is the API server running on port 8000?',
+        errorMessage: e instanceof Error ? e.message : 'Could not reach the backend. Is the API server running on port 8000?',
         streamingKpis: null,
       });
     }
@@ -225,7 +228,7 @@ export default function App() {
       }
 
       await consumeNdjsonStream(response, 'sample-invoice.csv', startTime, setUploadState);
-    } catch {
+    } catch (e) {
       setUploadState({
         status: 'error',
         filename: 'sample-invoice.csv',
@@ -233,7 +236,7 @@ export default function App() {
         totalCount: null,
         analysisTimeMs: null,
         results: null,
-        errorMessage: 'Could not reach the backend. Is the API server running on port 8000?',
+        errorMessage: e instanceof Error ? e.message : 'Could not reach the backend. Is the API server running on port 8000?',
         streamingKpis: null,
       });
     }
