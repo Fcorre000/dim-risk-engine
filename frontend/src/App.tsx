@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { flushSync } from 'react-dom';
 import { BASE_URL } from './api';
 import type { PageId, ShipmentResult, UploadState } from './types/api';
@@ -124,6 +124,20 @@ async function consumeNdjsonStream(
 export default function App() {
   const [activePage, setActivePage] = useState<PageId>('overview');
   const [uploadState, setUploadState] = useState<UploadState>(INITIAL_UPLOAD_STATE);
+  const [serverStatus, setServerStatus] = useState<'checking' | 'warming' | 'ready'>('checking');
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (!cancelled) setServerStatus('warming');
+    }, 3000);
+
+    fetch(`${BASE_URL}/health`)
+      .then(() => { clearTimeout(timer); if (!cancelled) setServerStatus('ready'); })
+      .catch(() => { clearTimeout(timer); if (!cancelled) setServerStatus('ready'); });
+
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, []);
 
   const handleUpload = async (file: File): Promise<void> => {
     setUploadState({
@@ -245,8 +259,31 @@ export default function App() {
   };
 
   return (
-    <MainLayout activePage={activePage} onNavigate={setActivePage}>
-      {renderPage()}
-    </MainLayout>
+    <>
+      {serverStatus === 'warming' && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2.5 bg-amber-950/95 border-b border-amber-800/50 px-4 py-2.5 backdrop-blur-sm"
+        >
+          <svg
+            className="w-3.5 h-3.5 animate-spin shrink-0 text-amber-400"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <p className="text-xs text-amber-300">
+            Server warming up after inactivity — this can take up to 60 seconds. The demo will start automatically once ready.
+          </p>
+        </div>
+      )}
+      <MainLayout activePage={activePage} onNavigate={setActivePage}>
+        {renderPage()}
+      </MainLayout>
+    </>
   );
 }
