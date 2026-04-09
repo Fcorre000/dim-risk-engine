@@ -264,6 +264,10 @@ Set `VITE_API_URL` on the frontend service to point to the API URL, and `CORS_OR
 
 ## Changelog
 
+### 2026-04-09 — Cold start UX + keep-alive
+- First-time visitors after server inactivity now see a **"Server warming up"** banner instead of a silent spinner — disappears automatically once the server responds
+- Added UptimeRobot keep-alive ping on `/health` every 5 minutes to prevent Render free-tier spin-down in the first place
+
 ### 2026-04-09 — Rate limiting and file size cap
 - `POST /analyze` and `POST /analyze/stream` now enforce a **50 MB file size limit** — returns HTTP 413 if exceeded
 - Both endpoints enforce a **sliding-window rate limit of 10 requests/minute per IP** — returns HTTP 429 if exceeded

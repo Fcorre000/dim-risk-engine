@@ -102,6 +102,17 @@ the actual invoice columns parsed in `api/inference.py`.
 See docs/ folder — read 01_eda_notes.docx and model_results_reference.docx
 before writing any inference code.
 
+## Cold start handling (Render free tier)
+- Render spins down the API after 15 min inactivity; first request takes ~60 seconds
+- **Keep-alive:** UptimeRobot pings `GET /health` every 5 minutes — prevents spin-down under normal traffic
+- **UX fallback:** `App.tsx` fires `GET /health` on mount with a 3-second timer
+  - If health check resolves within 3s → server was warm, nothing shown
+  - If 3 seconds pass without response → `serverStatus` set to `'warming'`, amber fixed banner shown
+  - When health check resolves → `serverStatus` set to `'ready'`, banner disappears
+  - Both `.then()` and `.catch()` set `'ready'` so the banner never gets stuck
+- Banner is `fixed top-0 z-50` — works on all pages without touching `MainLayout`
+- `cancelled` flag in the `useEffect` cleanup prevents state updates after unmount
+
 ## Rate limiting and file size cap
 - Both `/analyze` and `/analyze/stream` enforce a **50 MB file size cap** (`MAX_FILE_BYTES` in `api/main.py`) — returns HTTP 413
 - Both endpoints enforce a **sliding-window rate limit** of 10 requests/60 seconds per IP (`RATE_LIMIT`, `RATE_WINDOW`) — returns HTTP 429
