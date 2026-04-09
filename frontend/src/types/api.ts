@@ -15,7 +15,7 @@ export interface ShipmentResult {
   dim_anomaly: 'Unexpected' | null;
   dim_confidence: number | null;     // P(DIM=N) when Unexpected, else null
   cost_anomaly: 'Review' | null;
-  cost_confidence: 'High' | null;    // "High" when actual > pred_high, else null
+  cost_confidence: 'Low' | 'Medium' | 'High' | 'Critical' | null;  // graded by overage/CI-width
 }
 
 export type PageId = 'overview' | 'anomalies' | 'by-zone' | 'by-sku' | 'trends' | 'export';

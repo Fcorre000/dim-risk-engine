@@ -20,12 +20,33 @@ def load_residual_quantiles(models_dir: pathlib.Path) -> dict:
     return {"q05": -0.15, "q95": 0.35}
 
 
+def _cost_confidence(actual: float, pred_high: float, pred_low: float) -> str:
+    """Grade cost anomaly severity by how far actual exceeds the CI upper bound.
+
+    Uses overage as a multiple of the CI width:
+      < 0.5x  → "Low"
+      0.5–1x  → "Medium"
+      1–2x    → "High"
+      ≥ 2x    → "Critical"
+    """
+    ci_width = max(pred_high - pred_low, 1e-6)  # guard against zero-width CI
+    multiple = (actual - pred_high) / ci_width
+    if multiple < 0.5:
+        return "Low"
+    if multiple < 1.0:
+        return "Medium"
+    if multiple < 2.0:
+        return "High"
+    return "Critical"
+
+
 def apply_anomaly_flags(
     dim_proba_y: np.ndarray,
     fedex_dim_flags: pd.Series,
     actual_charges: pd.Series,
     predicted_charges: np.ndarray,
     predicted_high: np.ndarray,
+    predicted_low: np.ndarray = None,
 ) -> list:
     """Apply DIM and cost anomaly logic with confidence scores.
 
@@ -35,13 +56,14 @@ def apply_anomaly_flags(
         actual_charges: Series of actual net charge amounts in dollars.
         predicted_charges: Array of predicted net charge amounts in dollars.
         predicted_high: Array of 95th percentile upper bounds in dollars.
+        predicted_low: Array of 5th percentile lower bounds in dollars (for CI width).
 
     Returns:
         List of dicts with keys:
         - dim_anomaly: "Unexpected" if P(DIM=N) > 0.6 AND FedEx flagged DIM=Y; else None
         - dim_confidence: P(DIM=N) when dim_anomaly is set, else None
         - cost_anomaly: "Review" if actual charge > predicted_high; else None
-        - cost_confidence: "High" if actual > predicted_high, else None
+        - cost_confidence: "Low"/"Medium"/"High"/"Critical" graded by overage/CI-width; else None
     """
     dim_proba_n = 1.0 - dim_proba_y
     fedex_dim = fedex_dim_flags.str.upper().str.strip()
@@ -51,11 +73,22 @@ def apply_anomaly_flags(
         is_dim_anomaly = dim_proba_n[i] > 0.6 and fedex_dim.iloc[i] == "Y"
         is_cost_anomaly = actual_charges.iloc[i] > predicted_high[i]
 
+        if is_cost_anomaly and predicted_low is not None:
+            confidence = _cost_confidence(
+                float(actual_charges.iloc[i]),
+                float(predicted_high[i]),
+                float(predicted_low[i]),
+            )
+        elif is_cost_anomaly:
+            confidence = "High"  # fallback when pred_low not provided
+        else:
+            confidence = None
+
         flags.append({
             "dim_anomaly": "Unexpected" if is_dim_anomaly else None,
             "dim_confidence": round(float(dim_proba_n[i]), 4) if is_dim_anomaly else None,
             "cost_anomaly": "Review" if is_cost_anomaly else None,
-            "cost_confidence": "High" if is_cost_anomaly else None,
+            "cost_confidence": confidence,
         })
 
     return flags
@@ -106,7 +139,7 @@ def run_inference(df: pd.DataFrame, clf, reg, residual_quantiles: Optional[dict]
 
     # Apply anomaly flags (now uses pred_high for cost anomaly threshold)
     anomaly_flags = apply_anomaly_flags(
-        dim_proba_y, fedex_dim_flags, actual_charges, predicted_charge, pred_high
+        dim_proba_y, fedex_dim_flags, actual_charges, predicted_charge, pred_high, pred_low
     )
 
     # Build result list

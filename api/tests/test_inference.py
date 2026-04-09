@@ -64,15 +64,35 @@ def test_dim_anomaly_none_fedex_n():
 
 
 def test_cost_anomaly_review():
-    """INF-04: Cost anomaly 'Review' when actual > predicted_high."""
+    """INF-04: Cost anomaly 'Review' when actual > predicted_high; confidence is a valid grade."""
     dim_proba_y = np.array([0.8])
     fedex_flags = pd.Series(["N"])
     actual_charges = pd.Series([100.0])
     predicted_charges = np.array([60.0])
-    predicted_high = np.array([75.0])  # 100 > 75
-    flags = apply_anomaly_flags(dim_proba_y, fedex_flags, actual_charges, predicted_charges, predicted_high)
+    predicted_high = np.array([75.0])   # 100 > 75
+    predicted_low = np.array([48.0])    # CI width = 27; overage = 25 → multiple ≈ 0.93 → "Medium"
+    flags = apply_anomaly_flags(dim_proba_y, fedex_flags, actual_charges, predicted_charges, predicted_high, predicted_low)
     assert flags[0]["cost_anomaly"] == "Review"
-    assert flags[0]["cost_confidence"] == "High"
+    assert flags[0]["cost_confidence"] in {"Low", "Medium", "High", "Critical"}
+    assert flags[0]["cost_confidence"] == "Medium"  # 25/27 ≈ 0.93, between 0.5 and 1.0
+
+
+def test_cost_confidence_grades():
+    """INF-04b: cost_confidence grades match overage/CI-width multiples."""
+    def flags_for(actual, pred_high, pred_low):
+        return apply_anomaly_flags(
+            np.array([0.8]), pd.Series(["N"]),
+            pd.Series([actual]), np.array([pred_high * 0.8]),
+            np.array([pred_high]), np.array([pred_low]),
+        )[0]["cost_confidence"]
+
+    ci_width = 20.0
+    pred_low, pred_high = 40.0, 60.0
+    # overage = actual - pred_high; multiple = overage / ci_width
+    assert flags_for(68.0, pred_high, pred_low) == "Low"       # 8/20 = 0.40
+    assert flags_for(78.0, pred_high, pred_low) == "Medium"    # 18/20 = 0.90
+    assert flags_for(95.0, pred_high, pred_low) == "High"      # 35/20 = 1.75
+    assert flags_for(120.0, pred_high, pred_low) == "Critical"  # 60/20 = 3.00
 
 
 def test_cost_anomaly_none():

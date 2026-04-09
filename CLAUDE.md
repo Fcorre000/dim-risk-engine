@@ -25,7 +25,7 @@ candidates.
   - `dim_confidence` = P(DIM=N) from the classifier (e.g. 0.87 → displayed as "87%")
 - Cost anomaly: actual charge > predicted_net_charge_high (90th-percentile upper bound) → "Review"
   - Previously was `actual > predicted * 1.25`; now uses the calibrated upper bound
-  - `cost_confidence` = "High" (fixed string for now)
+  - `cost_confidence` = severity grade computed from `(actual - predicted_high) / (predicted_high - predicted_low)`: `"Low"` (< 0.5×), `"Medium"` (0.5–1×), `"High"` (1–2×), `"Critical"` (≥ 2×)
 
 ## Prediction intervals (residual-based)
 - `models/residual_quantiles.json` stores calibrated log-space residual quantiles:
