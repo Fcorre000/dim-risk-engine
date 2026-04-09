@@ -3,6 +3,16 @@ import pandas as pd
 import numpy as np
 import io
 import time
+from unittest.mock import patch
+import main as main_module
+
+
+@pytest.fixture(autouse=True)
+def clear_rate_limit_store():
+    """Reset rate limit state between tests so they don't bleed into each other."""
+    main_module._rate_limit_store.clear()
+    yield
+    main_module._rate_limit_store.clear()
 
 
 def test_health(client):
@@ -94,3 +104,67 @@ def test_performance_5k_rows(client):
     data = response.json()
     assert len(data) == n
     assert elapsed < 1.0, f"5k rows took {elapsed:.2f}s, exceeds 1s SLA"
+
+
+def test_file_too_large_analyze(client, sample_df):
+    """POST /analyze returns 413 when file exceeds MAX_FILE_BYTES."""
+    csv_bytes = sample_df.to_csv(index=False).encode()
+    with patch.object(main_module, "MAX_FILE_BYTES", 1):  # 1 byte limit
+        response = client.post(
+            "/analyze",
+            files={"file": ("invoice.csv", io.BytesIO(csv_bytes), "text/csv")},
+        )
+    assert response.status_code == 413
+    assert "too large" in response.json()["detail"].lower()
+
+
+def test_file_too_large_stream(client, sample_df):
+    """POST /analyze/stream returns 413 when file exceeds MAX_FILE_BYTES."""
+    csv_bytes = sample_df.to_csv(index=False).encode()
+    with patch.object(main_module, "MAX_FILE_BYTES", 1):
+        response = client.post(
+            "/analyze/stream",
+            files={"file": ("invoice.csv", io.BytesIO(csv_bytes), "text/csv")},
+        )
+    assert response.status_code == 413
+    assert "too large" in response.json()["detail"].lower()
+
+
+def test_rate_limit_analyze(client, sample_df):
+    """POST /analyze returns 429 after RATE_LIMIT requests within the window."""
+    csv_bytes = sample_df.to_csv(index=False).encode()
+
+    # Exhaust the limit
+    for _ in range(main_module.RATE_LIMIT):
+        r = client.post(
+            "/analyze",
+            files={"file": ("invoice.csv", io.BytesIO(csv_bytes), "text/csv")},
+        )
+        assert r.status_code == 200
+
+    # Next request must be rejected
+    r = client.post(
+        "/analyze",
+        files={"file": ("invoice.csv", io.BytesIO(csv_bytes), "text/csv")},
+    )
+    assert r.status_code == 429
+    assert "too many requests" in r.json()["detail"].lower()
+
+
+def test_rate_limit_stream(client, sample_df):
+    """POST /analyze/stream returns 429 after RATE_LIMIT requests within the window."""
+    csv_bytes = sample_df.to_csv(index=False).encode()
+
+    for _ in range(main_module.RATE_LIMIT):
+        r = client.post(
+            "/analyze/stream",
+            files={"file": ("invoice.csv", io.BytesIO(csv_bytes), "text/csv")},
+        )
+        assert r.status_code == 200
+
+    r = client.post(
+        "/analyze/stream",
+        files={"file": ("invoice.csv", io.BytesIO(csv_bytes), "text/csv")},
+    )
+    assert r.status_code == 429
+    assert "too many requests" in r.json()["detail"].lower()

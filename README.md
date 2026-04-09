@@ -264,6 +264,11 @@ Set `VITE_API_URL` on the frontend service to point to the API URL, and `CORS_OR
 
 ## Changelog
 
+### 2026-04-09 — Rate limiting and file size cap
+- `POST /analyze` and `POST /analyze/stream` now enforce a **50 MB file size limit** — returns HTTP 413 if exceeded
+- Both endpoints enforce a **sliding-window rate limit of 10 requests/minute per IP** — returns HTTP 429 if exceeded
+- `/demo/stream` is excluded (reads a local file server-side, no upload)
+
 ### 2026-04-07 — Confidence intervals on anomaly flags
 - Each shipment now includes a **90% prediction interval** (`predicted_net_charge_low` / `predicted_net_charge_high`) derived from calibrated log-space residual quantiles
 - DIM anomaly badges show model confidence percentage (e.g. "Unexpected 87%") — higher % = stronger dispute case

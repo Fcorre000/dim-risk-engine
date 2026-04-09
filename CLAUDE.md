@@ -102,6 +102,13 @@ the actual invoice columns parsed in `api/inference.py`.
 See docs/ folder — read 01_eda_notes.docx and model_results_reference.docx
 before writing any inference code.
 
+## Rate limiting and file size cap
+- Both `/analyze` and `/analyze/stream` enforce a **50 MB file size cap** (`MAX_FILE_BYTES` in `api/main.py`) — returns HTTP 413
+- Both endpoints enforce a **sliding-window rate limit** of 10 requests/60 seconds per IP (`RATE_LIMIT`, `RATE_WINDOW`) — returns HTTP 429
+- State stored in `_rate_limit_store` (module-level `defaultdict` of timestamps) — in-memory only, resets on restart; fine for single-worker Render deploy
+- `/demo/stream` is intentionally excluded — no file upload, no abuse surface
+- Tests in `api/tests/test_api.py`: `clear_rate_limit_store` autouse fixture wipes state between tests; `patch.object(main_module, "MAX_FILE_BYTES", 1)` used to avoid uploading 50 MB in tests
+
 ## Run commands
 Backend:  cd api && uvicorn main:app --reload --port 8000
 Frontend: cd frontend && npm run dev

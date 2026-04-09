@@ -1,3 +1,4 @@
+from collections import defaultdict
 from contextlib import asynccontextmanager
 import io
 import os
@@ -18,6 +19,23 @@ from ingest import parse_invoice, parse_invoice_chunks
 from inference import run_inference, load_residual_quantiles
 
 warnings.filterwarnings("ignore", message=".*Booster.*", category=UserWarning)
+
+MAX_FILE_BYTES = 50 * 1024 * 1024  # 50 MB
+
+RATE_LIMIT = 10        # max requests per IP
+RATE_WINDOW = 60.0     # per 60 seconds
+
+_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+
+
+def check_rate_limit(ip: str) -> bool:
+    now = time.time()
+    window_start = now - RATE_WINDOW
+    _rate_limit_store[ip] = [t for t in _rate_limit_store[ip] if t > window_start]
+    if len(_rate_limit_store[ip]) >= RATE_LIMIT:
+        return False
+    _rate_limit_store[ip].append(now)
+    return True
 
 
 @asynccontextmanager
@@ -79,11 +97,17 @@ async def health():
 
 @app.post("/analyze", response_model=list[ShipmentResult])
 async def analyze(request: Request, file: UploadFile = File(...)):
+    if not check_rate_limit(request.client.host):
+        return JSONResponse(status_code=429, content={"detail": "Too many requests. Try again in a minute."})
+
     start = time.perf_counter()
 
     # Read file into memory
     contents = await file.read()
     filename = file.filename or "upload.csv"
+
+    if len(contents) > MAX_FILE_BYTES:
+        return JSONResponse(status_code=413, content={"detail": f"File too large. Maximum size is {MAX_FILE_BYTES // 1024 // 1024} MB."})
 
     # Parse and preprocess
     try:
@@ -101,8 +125,14 @@ async def analyze(request: Request, file: UploadFile = File(...)):
 
 @app.post("/analyze/stream")
 async def analyze_stream(request: Request, file: UploadFile = File(...)):
+    if not check_rate_limit(request.client.host):
+        return JSONResponse(status_code=429, content={"detail": "Too many requests. Try again in a minute."})
+
     filename = file.filename or "upload.csv"
     contents = await file.read()  # read eagerly — avoids file handle lifecycle issues in threadpool
+
+    if len(contents) > MAX_FILE_BYTES:
+        return JSONResponse(status_code=413, content={"detail": f"File too large. Maximum size is {MAX_FILE_BYTES // 1024 // 1024} MB."})
 
     # Cheap row estimate from bytes already in memory
     total = None
