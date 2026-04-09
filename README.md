@@ -107,7 +107,7 @@ The XGBoost models powering this dashboard were trained on **53,000 real FedEx s
 ### Anomaly Detection Logic
 
 - **DIM anomaly ("Unexpected")**: Model predicts P(DIM=N) > 0.6 but FedEx charged DIM=Y — the shipment likely shouldn't have been DIM-billed. These are dispute candidates.
-- **Cost anomaly ("Review")**: Actual charge exceeds predicted charge by more than 25% — potential overcharge worth investigating.
+- **Cost anomaly ("Review")**: Actual charge exceeds `predicted_net_charge_high` (the 95th-percentile upper bound of the 90% prediction interval) — potential overcharge worth investigating.
 
 ### Feature Engineering Highlights
 
