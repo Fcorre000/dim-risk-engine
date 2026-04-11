@@ -264,6 +264,10 @@ Set `VITE_API_URL` on the frontend service to point to the API URL, and `CORS_OR
 
 ## Changelog
 
+### 2026-04-11 — Stream error handling
+- Column validation errors from bad uploads now surface as a human-readable message in the UI instead of silently failing
+- Previously, `__error__` lines in the NDJSON stream were pushed into results undetected; they now throw and set the error state with the server's exact message (e.g. "Missing required columns: Tracking Number, Pricing Zone")
+
 ### 2026-04-09 — Cost anomaly confidence grading
 - `cost_confidence` is now a computed severity grade instead of a hardcoded `"High"`
 - Grade is based on how far the actual charge exceeds the CI upper bound, measured in CI widths: **Low** (< 0.5×), **Medium** (0.5–1×), **High** (1–2×), **Critical** (≥ 2×)
