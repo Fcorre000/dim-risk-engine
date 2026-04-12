@@ -7,24 +7,22 @@ import openpyxl
 from ingest import parse_invoice_chunks, REQUIRED_COLS, LEAKAGE_COLS
 
 # Minimal valid schema: all REQUIRED_COLS + one leakage col
-VALID_COLS = list(REQUIRED_COLS) + ["Shipment Rated Weight(Pounds)"]
+VALID_COLS = list(REQUIRED_COLS) + ["Shipment Rated Weight (Pounds)"]
 
 def _make_valid_row(service_type="ES"):
     return {
         "Tracking Number": "123456789",
-        "Pieces in Shipment": 1,
         "Original Weight (Pounds)": 5.0,
-        "Dimmed Height (in)": 10.0,
-        "Dimmed Width (in)": 10.0,
-        "Dimmed Length (in)": 10.0,
-        "Shipment Declared Value Amount": 100.0,
+        "Dimmed Height (cm)": 25.0,
+        "Dimmed Width (cm)": 25.0,
+        "Dimmed Length (cm)": 25.0,
         "Service Type": service_type,
         "Pay Type": "Bill_Sender_Prepaid",
         "Pricing Zone": "2",
         "Shipment DIM Flag (Y or N)": "N",
         "Net Charge Billed Currency": 15.0,
-        "Customs Value": 0.0,
-        "Shipment Rated Weight(Pounds)": 6.0,
+        "Shipment Date (mm/dd/yyyy)": "07/17/2024",
+        "Shipment Rated Weight (Pounds)": 6.0,
     }
 
 

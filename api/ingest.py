@@ -5,23 +5,27 @@ import openpyxl
 from typing import Union
 
 FEATURE_COLS = [
-    'Pieces in Shipment', 'Original Weight (Pounds)', 'Dimmed Height (in)',
-    'Dimmed Width (in)', 'Dimmed Length (in)', 'Shipment Declared Value Amount',
-    'Customs Value', 'volume', 'dim_weight_calculator', 'dim_weight_ratio',
-    'has_dimensions', 'Service Type_CTAG', 'Service Type_ES', 'Service Type_FO',
-    'Service Type_MWT', 'Service Type_PO', 'Service Type_QH', 'Service Type_RMGR',
+    'Original Weight (Pounds)', 'Dimmed Height (cm)', 'Dimmed Width (cm)',
+    'Dimmed Length (cm)', 'volume', 'dim_weight_calculator', 'dim_weight_ratio',
+    'has_dimensions', 'billable_weight', 'billable_weight_ceil',
+    'ship_year', 'ship_month', 'months_since_start',
+    'Service Type_CTAG', 'Service Type_ES', 'Service Type_FO',
+    'Service Type_MWT', 'Service Type_ON', 'Service Type_PO', 'Service Type_QH',
+    'Service Type_RMGR', 'Service Type_RW', 'Service Type_S7', 'Service Type_S8',
     'Service Type_SG', 'Service Type_SO', 'Service Type_TA', 'Service Type_XS',
     'Pay Type_Bill_Recipient', 'Pay Type_Bill_Sender_Prepaid', 'Pay Type_Bill_Third_Party',
+    'Pay Type_Other4',
     'zone_clean_02', 'zone_clean_03', 'zone_clean_04', 'zone_clean_05',
-    'zone_clean_06', 'zone_clean_07', 'zone_clean_08', 'zone_clean_17', 'zone_clean_Other'
+    'zone_clean_06', 'zone_clean_07', 'zone_clean_08', 'zone_clean_09',
+    'zone_clean_17', 'zone_clean_Other'
 ]
 
-LEAKAGE_COLS = ["Shipment Rated Weight(Pounds)", "Net Charge Billed Currency"]
+LEAKAGE_COLS = ["Shipment Rated Weight (Pounds)", "Net Charge Billed Currency"]
 
 REQUIRED_COLS = [
-    "Tracking Number", "Pieces in Shipment", "Original Weight (Pounds)",
-    "Dimmed Height (in)", "Dimmed Width (in)", "Dimmed Length (in)",
-    "Shipment Declared Value Amount", "Service Type", "Pay Type",
+    "Tracking Number", "Original Weight (Pounds)",
+    "Dimmed Height (cm)", "Dimmed Width (cm)", "Dimmed Length (cm)",
+    "Service Type", "Pay Type",
     "Pricing Zone", "Shipment DIM Flag (Y or N)", "Net Charge Billed Currency",
 ]
 
@@ -189,14 +193,10 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
 
-    # Ensure Customs Value is present
-    if "Customs Value" not in df.columns:
-        df["Customs Value"] = 0.0
-
     # --- Engineered features ---
-    H = df["Dimmed Height (in)"].fillna(0)
-    W = df["Dimmed Width (in)"].fillna(0)
-    L = df["Dimmed Length (in)"].fillna(0)
+    H = df["Dimmed Height (cm)"].fillna(0)
+    W = df["Dimmed Width (cm)"].fillna(0)
+    L = df["Dimmed Length (cm)"].fillna(0)
 
     df["volume"] = H * W * L
     df["dim_weight_calculator"] = df["volume"] / 139.0
@@ -206,6 +206,29 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     df["dim_weight_ratio"] = df["dim_weight_ratio"].replace([np.inf, -np.inf], 0).fillna(0)
 
     df["has_dimensions"] = ((H > 0) & (W > 0) & (L > 0)).astype(int)
+
+    # Billable weight: max of original weight and DIM weight
+    df["billable_weight"] = np.maximum(
+        df["Original Weight (Pounds)"].fillna(0),
+        df["dim_weight_calculator"],
+    )
+    df["billable_weight_ceil"] = np.ceil(df["billable_weight"])
+
+    # --- Temporal features from Shipment Date ---
+    ship_date = None
+    for col_name in ("Shipment Date (mm/dd/yyyy)", "Shipment Date"):
+        if col_name in df.columns:
+            ship_date = pd.to_datetime(df[col_name], errors="coerce")
+            break
+    if ship_date is not None:
+        df["ship_year"] = ship_date.dt.year
+        df["ship_month"] = ship_date.dt.month
+        # months_since_start: months elapsed since April 2024 (training data start)
+        df["months_since_start"] = (ship_date.dt.year - 2024) * 12 + (ship_date.dt.month - 4)
+    else:
+        df["ship_year"] = 0
+        df["ship_month"] = 0
+        df["months_since_start"] = 0
 
     # --- Zone normalization and OHE ---
     df["zone_clean"] = df["Pricing Zone"].apply(clean_zone)

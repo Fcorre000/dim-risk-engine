@@ -24,18 +24,16 @@ def _make_csv_bytes(n_rows=10):
     for i in range(n_rows):
         rows.append({
             "Tracking Number": f"TRK{i:06d}",
-            "Pieces in Shipment": 1,
             "Original Weight (Pounds)": 5.0,
-            "Dimmed Height (in)": 10.0,
-            "Dimmed Width (in)": 10.0,
-            "Dimmed Length (in)": 10.0,
-            "Shipment Declared Value Amount": 100.0,
+            "Dimmed Height (cm)": 25.0,
+            "Dimmed Width (cm)": 25.0,
+            "Dimmed Length (cm)": 25.0,
             "Service Type": "ES",
             "Pay Type": "Bill_Sender_Prepaid",
             "Pricing Zone": "2",
             "Shipment DIM Flag (Y or N)": "N",
             "Net Charge Billed Currency": 15.0,
-            "Customs Value": 0.0,
+            "Shipment Date (mm/dd/yyyy)": "07/17/2024",
         })
     df = pd.DataFrame(rows)
     buf = io.BytesIO()

@@ -11,13 +11,44 @@ candidates.
 - Models: XGBoost .pkl files in models/ — DO NOT retrain these
 
 ## Model facts (critical)
-- xgb_classifier.pkl: predicts DIM flag (Y/N), input = 34 unscaled features
+- Models trained on 57,600 real FedEx shipments (25 months, Apr 2024 – Apr 2026)
+  from a mattress manufacturer. Training repo: shipping-dim-xgboost-pytorch
+- xgb_classifier.pkl: predicts DIM flag (Y/N), input = 41 unscaled features
+  - Test metrics: Accuracy 0.9974, F1 0.9959, ROC AUC 0.9997
 - xgb_regressor.pkl: predicts net charge, output is log-space — always
   wrap with np.expm1() before returning dollars
+  - Test metrics: MAE $3.88, RMSE $7.60, R² 0.8658
+  - Target is log-transformed (np.log1p) due to extreme skewness (23.1)
+  - Charges above $200 are excluded from training (top 0.50%, 285 rows)
 - Leakage columns NEVER in input:
-    Shipment Rated Weight(Pounds)
+    Shipment Rated Weight (Pounds)
     Net Charge Billed Currency
 - Pricing Zone must be normalized: '2' → '02', non-standard → 'Other'
+- Dimensions are in **centimeters** (cm), not inches — column names are
+  `Dimmed Height (cm)`, `Dimmed Width (cm)`, `Dimmed Length (cm)`
+
+## Model feature engineering (41 features)
+- Engineered from raw invoice columns, then one-hot encoded:
+  ```
+  volume              = height_cm * width_cm * length_cm
+  dim_weight_calculator = volume / 139
+  dim_weight_ratio    = dim_weight_calculator / actual_weight
+  billable_weight     = max(actual_weight, dim_weight_calculator)
+  billable_weight_ceil = ceil(billable_weight)
+  has_dimensions      = 1 if all dims > 0, else 0
+  ship_year           = shipment_date.year
+  ship_month          = shipment_date.month
+  months_since_start  = (year - 2024) * 12 + (month - 4)   # April 2024 = 0
+  ```
+- One-hot encoded categoricals:
+  - Service Type: CTAG, ES, FO, MWT, ON, PO, QH, RMGR, RW, S7, S8, SG, SO, TA, XS
+  - Pay Type: Bill_Recipient, Bill_Sender_Prepaid, Bill_Third_Party, Other4
+  - Zone: 02, 03, 04, 05, 06, 07, 08, 09, 17, Other
+- Time features (ship_year, ship_month, months_since_start) capture FedEx annual
+  rate card hikes (~5–7%), monthly fuel surcharges (DOE diesel), and peak season
+  surcharges — together explain ~40% mean-charge swing across the 25-month window
+- SHAP top drivers: classification = dim_weight_ratio; regression = Original Weight,
+  zone_08/07, billable_weight, months_since_start
 
 ## Anomaly logic
 - DIM flag anomaly: model predicts DIM=N probability > 0.6 but FedEx
@@ -82,13 +113,15 @@ candidates.
   so they only rerun when `results` changes, not on every 50-row KPI update
 
 ## Source data reference
-The real FedEx invoice is `FedEx_ShipmentDetail.xlsx` (root dir, ~50k rows).
-A 50-row CSV extract is at `test_invoice_50rows.csv` (fewer columns — no dates).
-**Always cross-reference these files** when building features or displaying
-shipment fields. The XLSX has 65 columns; key ones not in the CSV:
-  - Col G: `Shipment Date (mm/dd/yyyy)`
-  - Col H: `Shipment Delivery Date (mm/dd/yyyy)`
-  - Col 2: `Invoice Month (yyyymm)`
+The real FedEx invoice data is `2years.csv` (root dir, 57,600 rows, Apr 2024 – Apr 2026).
+66 columns; key ones:
+  - `Shipment Date (mm/dd/yyyy)` — used for temporal features
+  - `Shipment Delivery Date (mm/dd/yyyy)`
+  - `Invoice Month (yyyymm)` — ranges 202404 to 202604
+  - `Dimmed Height (cm)`, `Dimmed Width (cm)`, `Dimmed Length (cm)` — in centimeters
+  - `Shipment Tracking Number` — aliased to `Tracking Number` at parse time
+  - `Pieces In Shipment` — capital I (not used by models but present in data)
+**Always cross-reference this file** when building features or displaying shipment fields.
 
 ### Past bug: fake derive* functions
 The frontend originally used `deriveDims()`, `deriveWeight()`, `deriveZone()`,

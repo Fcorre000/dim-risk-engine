@@ -77,19 +77,17 @@ def test_performance_5k_rows(client):
     rng = np.random.default_rng(42)
     df = pd.DataFrame({
         "Tracking Number": [f"TRK{i:06d}" for i in range(n)],
-        "Pieces in Shipment": rng.integers(1, 10, n),
         "Original Weight (Pounds)": rng.uniform(1, 100, n),
-        "Dimmed Height (in)": rng.uniform(1, 30, n),
-        "Dimmed Width (in)": rng.uniform(1, 30, n),
-        "Dimmed Length (in)": rng.uniform(1, 60, n),
-        "Shipment Declared Value Amount": rng.uniform(0, 1000, n),
-        "Customs Value": np.zeros(n),
+        "Dimmed Height (cm)": rng.uniform(2, 75, n),
+        "Dimmed Width (cm)": rng.uniform(2, 75, n),
+        "Dimmed Length (cm)": rng.uniform(2, 150, n),
         "Service Type": rng.choice(["FO", "ES", "SO", "PO", "SG"], n),
         "Pay Type": rng.choice(["Bill_Sender_Prepaid", "Bill_Recipient", "Bill_Third_Party"], n),
         "Pricing Zone": rng.choice(["2", "3", "4", "5", "6", "7", "8", "17"], n),
         "Shipment DIM Flag (Y or N)": rng.choice(["Y", "N"], n),
         "Net Charge Billed Currency": rng.uniform(10, 500, n),
-        "Shipment Rated Weight(Pounds)": rng.uniform(1, 100, n),
+        "Shipment Date (mm/dd/yyyy)": ["07/17/2024"] * n,
+        "Shipment Rated Weight (Pounds)": rng.uniform(1, 100, n),
     })
     csv_bytes = df.to_csv(index=False).encode()
 
