@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { ShipmentResult, UploadState } from '../types/api';
 import { formatDollars } from '../lib/metrics';
+import CopyButton, { CopyTableButton } from '../components/ui/CopyButton';
 
 interface AnomaliesPageProps {
   uploadState: UploadState;
@@ -55,6 +56,7 @@ function SortIcon({ col, sortCol, sortDir }: { col: SortColumn; sortCol: SortCol
 export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
   const [sortCol, setSortCol] = useState<SortColumn>('confidence');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [selectedTracking, setSelectedTracking] = useState<string | null>(null);
 
   const results = uploadState.results ?? [];
 
@@ -82,6 +84,11 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
     });
     return rows;
   }, [flaggedRows, sortCol, sortDir]);
+
+  const selectedRow = useMemo(
+    () => selectedTracking ? sortedRows.find((r) => r.tracking_number === selectedTracking) ?? null : null,
+    [selectedTracking, sortedRows],
+  );
 
   function handleSort(col: SortColumn) {
     if (col === sortCol) {
@@ -115,17 +122,19 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
         <h1 className="text-2xl font-semibold text-gray-100">Anomalies</h1>
         <p className="text-gray-500 text-sm mt-1">
           {flaggedRows.length.toLocaleString()} flagged of {results.length.toLocaleString()} total shipments
+          <span className="ml-2 text-gray-600">Click a row to copy details</span>
         </p>
       </div>
 
       <div className="rounded-xl bg-gray-900 border border-gray-800">
-        <div className="px-6 py-4 border-b border-gray-800">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 flex-wrap gap-3">
           <p className="text-xs text-gray-500">
             Click <span className="text-gray-400">Flag</span>,{' '}
             <span className="text-gray-400">Actual $</span>,{' '}
             <span className="text-gray-400">Gap $</span>, or{' '}
             <span className="text-gray-400">Confidence</span> headers to sort
           </p>
+          <CopyTableButton rows={sortedRows} />
         </div>
 
         <div className="overflow-x-auto">
@@ -183,12 +192,16 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                 sortedRows.map((row, idx) => {
                   const gap = row.actual_net_charge - row.predicted_net_charge_high;
                   const conf = confidenceScore(row);
+                  const isSelected = selectedTracking === row.tracking_number;
                   return (
                     <tr
                       key={row.tracking_number}
+                      onClick={() => setSelectedTracking(isSelected ? null : row.tracking_number)}
                       className={[
-                        'border-b border-gray-800/60 transition-colors duration-75',
-                        idx % 2 === 0 ? 'bg-transparent' : 'bg-gray-800/20',
+                        'border-b border-gray-800/60 transition-colors duration-75 cursor-pointer',
+                        isSelected
+                          ? 'bg-blue-500/10 ring-1 ring-inset ring-blue-500/30'
+                          : idx % 2 === 0 ? 'bg-transparent' : 'bg-gray-800/20',
                         'hover:bg-gray-800/50',
                       ].join(' ')}
                     >
@@ -231,6 +244,43 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
             </tbody>
           </table>
         </div>
+
+        {/* Selected row copy bar */}
+        {selectedRow && (
+          <div className="px-6 py-3 border-t border-gray-800 bg-gray-800/40">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <p className="text-xs text-gray-400">
+                Selected: <span className="text-gray-200 font-medium">{selectedRow.tracking_number}</span>
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <CopyButton text={selectedRow.tracking_number} label="Tracking #" />
+                <CopyButton text={formatDollars(selectedRow.actual_net_charge)} label="Actual" />
+                <CopyButton
+                  text={`${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}`}
+                  label="Predicted Range"
+                />
+                <CopyButton
+                  text={`${(selectedRow.actual_net_charge - selectedRow.predicted_net_charge_high) >= 0 ? '+' : ''}${formatDollars(selectedRow.actual_net_charge - selectedRow.predicted_net_charge_high)}`}
+                  label="Gap"
+                />
+                <CopyButton
+                  text={`${selectedRow.tracking_number}\t${selectedRow.service_type}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal'}`}
+                  label="Full Row"
+                />
+                <button
+                  type="button"
+                  onClick={() => setSelectedTracking(null)}
+                  className="ml-1 p-1 rounded-md text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors"
+                  aria-label="Dismiss"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

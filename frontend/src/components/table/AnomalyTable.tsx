@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import type { ShipmentResult } from '../../types/api';
 import { formatDollars } from '../../lib/metrics';
+import CopyButton, { CopyTableButton } from '../ui/CopyButton';
 
 type FilterValue = 'all' | 'unexpected' | 'review';
 
@@ -105,6 +106,7 @@ const PAGE_SIZE = 100;
 
 export default function AnomalyTable({ results }: AnomalyTableProps) {
   const [filterValue, setFilterValue] = useState<FilterValue>('all');
+  const [selectedTracking, setSelectedTracking] = useState<string | null>(null);
 
   const flaggedRows = useMemo(
     () => results.filter((r) => r.dim_anomaly !== null || r.cost_anomaly !== null),
@@ -123,6 +125,11 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
   }, [flaggedRows, filterValue]);
 
   const displayRows = filteredRows.slice(0, PAGE_SIZE);
+
+  const selectedRow = useMemo(
+    () => selectedTracking ? displayRows.find((r) => r.tracking_number === selectedTracking) ?? null : null,
+    [selectedTracking, displayRows],
+  );
 
   if (results.length === 0) {
     return (
@@ -143,9 +150,11 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
             {flaggedRows.length > PAGE_SIZE && displayRows.length === PAGE_SIZE && (
               <span className="ml-1 text-gray-600">(showing first {PAGE_SIZE})</span>
             )}
+            <span className="ml-2 text-gray-600">Click a row to copy details</span>
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <CopyTableButton rows={filteredRows} />
           <FlagInfoPopover />
           <label htmlFor="anomaly-filter" className="text-xs text-gray-500">
             Filter:
@@ -193,9 +202,14 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
               displayRows.map((row, idx) => (
                   <tr
                     key={row.tracking_number}
+                    onClick={() => setSelectedTracking(
+                      selectedTracking === row.tracking_number ? null : row.tracking_number
+                    )}
                     className={[
-                      'border-b border-gray-800/60 transition-colors duration-75',
-                      idx % 2 === 0 ? 'bg-transparent' : 'bg-gray-800/20',
+                      'border-b border-gray-800/60 transition-colors duration-75 cursor-pointer',
+                      selectedTracking === row.tracking_number
+                        ? 'bg-blue-500/10 ring-1 ring-inset ring-blue-500/30'
+                        : idx % 2 === 0 ? 'bg-transparent' : 'bg-gray-800/20',
                       'hover:bg-gray-800/50',
                     ].join(' ')}
                   >
@@ -231,6 +245,39 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
           </tbody>
         </table>
       </div>
+
+      {/* Selected row copy bar */}
+      {selectedRow && (
+        <div className="px-6 py-3 border-t border-gray-800 bg-gray-800/40">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <p className="text-xs text-gray-400">
+              Selected: <span className="text-gray-200 font-medium">{selectedRow.tracking_number}</span>
+            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <CopyButton text={selectedRow.tracking_number} label="Tracking #" />
+              <CopyButton text={formatDollars(selectedRow.actual_net_charge)} label="Actual" />
+              <CopyButton
+                text={`${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}`}
+                label="Predicted Range"
+              />
+              <CopyButton
+                text={`${selectedRow.tracking_number}\t${selectedRow.service_type}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal'}`}
+                label="Full Row"
+              />
+              <button
+                type="button"
+                onClick={() => setSelectedTracking(null)}
+                className="ml-1 p-1 rounded-md text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors"
+                aria-label="Dismiss"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
