@@ -155,6 +155,28 @@ candidates.
 - **AnomaliesPage**: same click-to-select + copy bar pattern; "Copy All" in header
   copies in current sort order
 
+## By State page — US shipping heatmap
+- Replaced the old "By SKU" page with a US state choropleth map showing shipment volume
+- **Backend** (`api/inference.py`): `recipient_state` field extracted with column-shift
+  fallback — FedEx exports sometimes shift address→city→state→country, putting the city
+  in the state column and the actual 2-letter code in the country column. Logic: try
+  `Recipient State/Province` first; if not a valid 2-letter alpha code, fall back to
+  `Recipient Country/Territory` (excluding "US"). Recovers 99.4% of rows.
+- **Map library**: `react-simple-maps` (v3, ~30KB) with CDN-loaded TopoJSON
+  (`us-atlas@3/states-10m.json`). `geoAlbersUsa` projection handles Alaska/Hawaii inset.
+- **Color scale**: sequential blue — `#1f2937` (no data) → `#1e3a5f` (low) → `#3b82f6` (high),
+  with gradient legend bar
+- **Tooltip**: fixed-position card (top-right of map) on hover — shows state name,
+  shipment count, total billed, gap, anomaly count
+- **Summary table**: below the map, all states ranked by shipment count with columns:
+  State, Shipments, Total Actual, Total Predicted, Gap, Anomalies
+- **State name mapping**: static `NAME_TO_ABBR` lookup (50 states + DC) converts TopoJSON
+  `geo.properties.name` (e.g. "California") → 2-letter code (e.g. "CA")
+- `computeStateData()` in `lib/metrics.ts` aggregates by `recipient_state`, skips nulls
+- `PageId` type: `'by-sku'` replaced with `'by-state'`; Sidebar nav item updated with
+  map-pin icon
+- Old `BySkuPage.tsx` deleted; `computeSkuData()` in metrics.ts kept (harmless)
+
 ## Source data reference
 The real FedEx invoice data is `2years.csv` (root dir, 57,600 rows, Apr 2024 – Apr 2026).
 66 columns; key ones:

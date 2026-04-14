@@ -55,7 +55,7 @@ The backend streams results as **NDJSON** (newline-delimited JSON) so the fronte
 | **Overview** | Upload zone, KPI cards (total shipments, DIM anomaly rate, cost anomaly rate, total potential savings), zone distribution chart, per-shipment actual vs. predicted scatter plot (color-coded by anomaly type), anomaly summary table with click-to-copy |
 | **Anomalies** | Sortable table of all flagged shipments with click-to-copy rows and "Copy All" for bulk export to spreadsheets |
 | **By Zone** | Anomaly breakdown by FedEx pricing zone |
-| **By SKU** | Anomaly breakdown by service type |
+| **By State** | US choropleth map showing shipment volume by state, with hover tooltips and ranked summary table |
 | **Trends** | Daily or weekly charge trends and dispute candidate history, with granularity toggle |
 | **Export** | Download results as CSV for further analysis |
 
@@ -81,6 +81,7 @@ The backend streams results as **NDJSON** (newline-delimited JSON) so the fronte
 | **Vite** | Build tooling and dev server |
 | **Tailwind CSS** | Utility-first styling with dark theme |
 | **Recharts** | Data visualization (charts, scatter plots) |
+| **react-simple-maps** | US state choropleth map (SVG, TopoJSON) |
 
 ### Infrastructure
 
@@ -205,7 +206,7 @@ dim-risk-engine/
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx          # Root component — upload handler, stream reader
-│   │   ├── pages/           # Overview, Anomalies, ByZone, BySku, Trends, Export
+│   │   ├── pages/           # Overview, Anomalies, ByZone, ByState, Trends, Export
 │   │   ├── components/
 │   │   │   ├── upload/      # UploadZone (drag-drop + progress bar)
 │   │   │   ├── charts/      # ZoneChart, ActualVsPredictedChart (scatter), TrendsChart
@@ -283,6 +284,12 @@ Set `VITE_API_URL` on the frontend service to point to the API URL, and `CORS_OR
 ---
 
 ## Changelog
+
+### 2026-04-14 — US state shipping map (replaces By SKU)
+- **By SKU → By State:** Replaced service type breakdown page with a **US choropleth map** showing shipment volume by state, powered by `react-simple-maps`
+- **State data pipeline:** Backend now extracts `recipient_state` from invoice data with a column-shift fallback — FedEx exports sometimes misalign columns, putting city names in the state field. The fallback checks the country column for valid state codes, recovering 99.4% of rows
+- **Map features:** `geoAlbersUsa` projection (includes Alaska/Hawaii inset), sequential blue color scale, hover tooltips with shipment count/charges/anomalies, gradient legend
+- **Summary table:** Ranked table below the map with per-state shipment count, total actual, total predicted, gap, and anomaly count
 
 ### 2026-04-14 — Per-shipment scatter plot, daily/weekly trends, copy-to-clipboard
 - **Overview chart replaced:** Monthly bar chart → per-shipment scatter plot (actual vs predicted). Each dot is one shipment, color-coded by anomaly type (red = Unexpected, amber = Review, blue = Normal). Diagonal reference line shows perfect prediction.
