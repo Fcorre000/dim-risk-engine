@@ -1,6 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 .claude
 .planning
+/model_resources
 # dependencies
 frontend/node_modules
 /.pnp

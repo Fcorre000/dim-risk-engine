@@ -13,7 +13,7 @@ candidates.
 ## Model facts (critical)
 - Models trained on 57,600 real FedEx shipments (25 months, Apr 2024 – Apr 2026)
   from a mattress manufacturer. Training repo: shipping-dim-xgboost-pytorch
-- xgb_classifier.pkl: predicts DIM flag (Y/N), input = 41 unscaled features
+- xgb_classifier.pkl: predicts DIM flag (Y/N), input = 42 unscaled features
   - Test metrics: Accuracy 0.9974, F1 0.9959, ROC AUC 0.9997
 - xgb_regressor.pkl: predicts net charge, output is log-space — always
   wrap with np.expm1() before returning dollars
@@ -26,19 +26,23 @@ candidates.
 - Pricing Zone must be normalized: '2' → '02', non-standard → 'Other'
 - Dimensions are in **centimeters** (cm), not inches — column names are
   `Dimmed Height (cm)`, `Dimmed Width (cm)`, `Dimmed Length (cm)`
+- **Inference must convert cm → inches** before computing volume/DIM weight
+  features — the training pipeline divides by 2.54, and the FedEx DIM divisor
+  (139) is defined in cubic inches per pound
 
-## Model feature engineering (41 features)
+## Model feature engineering (42 features)
 - Engineered from raw invoice columns, then one-hot encoded:
   ```
-  volume              = height_cm * width_cm * length_cm
-  dim_weight_calculator = volume / 139
+  height_in / width_in / length_in = cm_value / 2.54   # convert to inches first!
+  volume              = height_in * width_in * length_in
+  dim_weight_calculator = volume / 139                  # 139 = in³/lb (FedEx domestic)
   dim_weight_ratio    = dim_weight_calculator / actual_weight
   billable_weight     = max(actual_weight, dim_weight_calculator)
   billable_weight_ceil = ceil(billable_weight)
   has_dimensions      = 1 if all dims > 0, else 0
   ship_year           = shipment_date.year
   ship_month          = shipment_date.month
-  months_since_start  = (year - 2024) * 12 + (month - 4)   # April 2024 = 0
+  months_since_start  = (year - 2024) * 12 + month      # April 2024 = 4
   ```
 - One-hot encoded categoricals:
   - Service Type: CTAG, ES, FO, MWT, ON, PO, QH, RMGR, RW, S7, S8, SG, SO, TA, XS
@@ -187,6 +191,20 @@ The real FedEx invoice data is `2years.csv` (root dir, 57,600 rows, Apr 2024 –
   - `Shipment Tracking Number` — aliased to `Tracking Number` at parse time
   - `Pieces In Shipment` — capital I (not used by models but present in data)
 **Always cross-reference this file** when building features or displaying shipment fields.
+
+### Past bug: inference feature mismatch (cm→inches + time offset)
+`build_feature_matrix()` in `ingest.py` had two mismatches vs the training
+preprocessing (`model_resources/02_preprocessing.py`):
+1. **Missing cm→inches conversion**: Training divides dimensions by 2.54
+   before computing volume/dim_weight_calculator (because the FedEx DIM
+   divisor 139 is in³/lb). Inference was using raw cm values, inflating
+   volume by 2.54³ = 16.4×. Since dim_weight_ratio and billable_weight are
+   top SHAP features, this caused systematic ~30% overprediction on every
+   shipment with non-zero dimensions.
+2. **months_since_start offset**: Training uses `(year-2024)*12 + month`
+   (April 2024 = 4). Inference used `(year-2024)*12 + (month-4)` (April
+   2024 = 0), sending a value 4 lower than expected for every shipment.
+Both fixed 2026-04-14 in `build_feature_matrix()`.
 
 ### Past bug: fake derive* functions
 The frontend originally used `deriveDims()`, `deriveWeight()`, `deriveZone()`,

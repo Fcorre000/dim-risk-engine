@@ -174,7 +174,7 @@ def clean_zone(raw_zone) -> str:
 
 
 def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
-    """Transform a raw invoice DataFrame into the exact 34-column feature matrix
+    """Transform a raw invoice DataFrame into the exact 42-column feature matrix
     expected by the XGBoost models.
 
     Steps:
@@ -189,14 +189,16 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
         df: Raw invoice DataFrame from parse_invoice.
 
     Returns:
-        DataFrame with exactly 34 columns matching FEATURE_COLS.
+        DataFrame with exactly 42 columns matching FEATURE_COLS.
     """
     df = df.copy()
 
     # --- Engineered features ---
-    H = df["Dimmed Height (cm)"].fillna(0)
-    W = df["Dimmed Width (cm)"].fillna(0)
-    L = df["Dimmed Length (cm)"].fillna(0)
+    # Convert cm to inches to match training preprocessing (FedEx DIM divisor 139 = in³/lb)
+    CM_PER_IN = 2.54
+    H = df["Dimmed Height (cm)"].fillna(0) / CM_PER_IN
+    W = df["Dimmed Width (cm)"].fillna(0) / CM_PER_IN
+    L = df["Dimmed Length (cm)"].fillna(0) / CM_PER_IN
 
     df["volume"] = H * W * L
     df["dim_weight_calculator"] = df["volume"] / 139.0
@@ -224,7 +226,7 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
         df["ship_year"] = ship_date.dt.year
         df["ship_month"] = ship_date.dt.month
         # months_since_start: months elapsed since April 2024 (training data start)
-        df["months_since_start"] = (ship_date.dt.year - 2024) * 12 + (ship_date.dt.month - 4)
+        df["months_since_start"] = (ship_date.dt.year - 2024) * 12 + ship_date.dt.month
     else:
         df["ship_year"] = 0
         df["ship_month"] = 0

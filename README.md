@@ -35,7 +35,7 @@ DimRisk Engine takes a FedEx invoice export and runs it through two trained XGBo
  .xlsx / .csv           │         FastAPI Backend          │
  invoice upload ──────> │                                  │
                         │  1. Parse & chunk (1000 rows)    │
-                        │  2. Feature engineering (41 col) │
+                        │  2. Feature engineering (42 col) │
                         │  3. XGBoost classifier → DIM P() │
                         │  4. XGBoost regressor → cost $   │
                         │  5. Anomaly flag logic           │
@@ -102,28 +102,29 @@ The XGBoost models powering this dashboard were trained on **57,600 real FedEx s
 
 | Model | Task | Input | Output | Key Metrics |
 |-------|------|-------|--------|-------------|
-| `xgb_classifier.pkl` | Binary classification | 41 engineered features | P(DIM=Y) — probability the shipment should be DIM-flagged | Accuracy 0.9974, F1 0.9959, AUC 0.9997 |
-| `xgb_regressor.pkl` | Regression | 41 engineered features | Predicted net charge in log-space (converted to dollars via `np.expm1()`) | MAE $3.88, RMSE $7.60, R² 0.8658 |
+| `xgb_classifier.pkl` | Binary classification | 42 engineered features | P(DIM=Y) — probability the shipment should be DIM-flagged | Accuracy 0.9974, F1 0.9959, AUC 0.9997 |
+| `xgb_regressor.pkl` | Regression | 42 engineered features | Predicted net charge in log-space (converted to dollars via `np.expm1()`) | MAE $3.88, RMSE $7.60, R² 0.8658 |
 
 ### Anomaly Detection Logic
 
 - **DIM anomaly ("Unexpected")**: Model predicts P(DIM=N) > 0.6 but FedEx charged DIM=Y — the shipment likely shouldn't have been DIM-billed. These are dispute candidates.
 - **Cost anomaly ("Review")**: Actual charge exceeds `predicted_net_charge_high` (the 95th-percentile upper bound of the 90% prediction interval) — potential overcharge worth investigating.
 
-### Feature Engineering (41 features)
+### Feature Engineering (42 features)
 
 Engineered from raw invoice columns, then one-hot encoded:
 
 ```
-volume              = height_cm × width_cm × length_cm
-dim_weight_calculator = volume / 139                      (FedEx domestic DIM divisor)
+height_in / width_in / length_in = cm_value / 2.54         (convert cm → inches first!)
+volume              = height_in × width_in × length_in
+dim_weight_calculator = volume / 139                        (FedEx domestic DIM divisor, in³/lb)
 dim_weight_ratio    = dim_weight_calculator / actual_weight  (>1.0 triggers DIM billing)
 billable_weight     = max(actual_weight, dim_weight_calculator)
 billable_weight_ceil = ceil(billable_weight)                (matches FedEx rate-card rounding)
 has_dimensions      = 1 if all dims > 0, else 0
 ship_year           = shipment year                        (annual rate card changes)
 ship_month          = shipment month                       (monthly fuel surcharge cycles)
-months_since_start  = (year - 2024) × 12 + (month - 4)    (linear time index for trend)
+months_since_start  = (year - 2024) × 12 + month           (linear time index, April 2024 = 4)
 ```
 
 Plus one-hot encoded service type (15 categories), pay type (4 categories), and pricing zone (10 categories).
@@ -132,7 +133,7 @@ Plus one-hot encoded service type (15 categories), pay type (4 categories), and 
 - **Leakage prevention:** `Shipment Rated Weight` and `Net Charge Billed Currency` excluded from model input (Rated Weight is derived from DIM flag, correlation ~0.95)
 - **Time features:** Capture FedEx annual rate card hikes (~5–7%), monthly fuel surcharges (DOE diesel), and peak season surcharges — reduced regression MAE by 37% on validation
 - **$200 cap:** Top 0.50% of charges (285 shipments) excluded to reduce extreme skewness (23.1)
-- **Dimensions in cm:** Raw invoice data uses centimeters; previous models used inches
+- **Dimensions in cm → inches at inference:** Raw invoice data uses centimeters; `build_feature_matrix()` converts to inches (÷ 2.54) before computing volume/DIM weight to match the training pipeline and the FedEx DIM divisor (139 in³/lb)
 - **SHAP interpretability:** Classification driven by `dim_weight_ratio`; regression by `Original Weight`, pricing zone, `billable_weight`, and time features
 
 ---
@@ -285,6 +286,11 @@ Set `VITE_API_URL` on the frontend service to point to the API URL, and `CORS_OR
 
 ## Changelog
 
+### 2026-04-14 — Fix inference feature mismatch (cm→inches + time offset)
+- **Critical bug fix:** `build_feature_matrix()` was computing volume and DIM weight features using raw centimeter values, but the training pipeline converts to inches first (÷ 2.54). This inflated volume by 16.4× and caused systematic ~30% overprediction across all shipments with non-zero dimensions. Fixed by adding the same cm→inches conversion used during training.
+- **Time feature fix:** `months_since_start` formula used `(year-2024)*12 + (month-4)` (April 2024 = 0) but training used `(year-2024)*12 + month` (April 2024 = 4). Fixed to match training.
+- **Feature count corrected:** Documentation said 41 features; actual model has 42 (confirmed by inspecting `xgb_regressor.get_booster().feature_names`).
+
 ### 2026-04-14 — US state shipping map (replaces By SKU)
 - **By SKU → By State:** Replaced service type breakdown page with a **US choropleth map** showing shipment volume by state, powered by `react-simple-maps`
 - **State data pipeline:** Backend now extracts `recipient_state` from invoice data with a column-shift fallback — FedEx exports sometimes misalign columns, putting city names in the state field. The fallback checks the country column for valid state codes, recovering 99.4% of rows
@@ -300,7 +306,7 @@ Set `VITE_API_URL` on the frontend service to point to the API URL, and `CORS_OR
 
 ### 2026-04-12 — Model v2: retrained on 25-month dataset (Apr 2024 – Apr 2026)
 - Replaced both XGBoost models with versions trained on 57,600 shipments (was ~53,000 from 2022–2024)
-- Feature count increased from 34 to **41 features** — added `billable_weight`, `billable_weight_ceil`, `ship_year`, `ship_month`, `months_since_start`; removed `Pieces in Shipment`, `Shipment Declared Value Amount`, `Customs Value`
+- Feature count increased from 34 to **42 features** — added `billable_weight`, `billable_weight_ceil`, `ship_year`, `ship_month`, `months_since_start`; removed `Pieces in Shipment`, `Shipment Declared Value Amount`, `Customs Value`
 - Dimensions now in **centimeters** (was inches) — matches raw FedEx invoice export format
 - New service types (`ON`, `RW`, `S7`, `S8`), pay type (`Other4`), and zone (`09`) in one-hot encoding
 - Time features capture FedEx rate card hikes, fuel surcharges, and seasonal pricing dynamics
