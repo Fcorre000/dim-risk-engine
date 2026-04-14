@@ -6,7 +6,7 @@ import MainLayout from './components/layout/MainLayout';
 import OverviewPage from './pages/OverviewPage';
 import AnomaliesPage from './pages/AnomaliesPage';
 import ByZonePage from './pages/ByZonePage';
-import BySkuPage from './pages/BySkuPage';
+import ByStatePage from './pages/ByStatePage';
 import TrendsPage from './pages/TrendsPage';
 import ExportPage from './pages/ExportPage';
 
@@ -250,8 +250,8 @@ export default function App() {
         return <AnomaliesPage uploadState={uploadState} />;
       case 'by-zone':
         return <ByZonePage uploadState={uploadState} />;
-      case 'by-sku':
-        return <BySkuPage uploadState={uploadState} />;
+      case 'by-state':
+        return <ByStatePage uploadState={uploadState} />;
       case 'trends':
         return <TrendsPage uploadState={uploadState} />;
       case 'export':

@@ -137,6 +137,26 @@ def run_inference(df: pd.DataFrame, clf, reg, residual_quantiles: Optional[dict]
             break
     shipment_dates = pd.to_datetime(df[date_col], errors="coerce") if date_col else None
 
+    # Recipient state — with column-shift fallback
+    # FedEx exports sometimes shift address→city→state→country, putting the city name
+    # in the state column and the actual 2-letter state code in the country column.
+    state_col = "Recipient State/Province"
+    country_col = "Recipient Country/Territory"
+    has_state_col = state_col in df.columns
+    has_country_col = country_col in df.columns
+
+    def _extract_state(row_idx):
+        if has_state_col:
+            val = str(df[state_col].iloc[row_idx]).strip().upper()
+            if len(val) == 2 and val.isalpha():
+                return val
+        # Fallback: column-shift puts state code in country field
+        if has_country_col:
+            val = str(df[country_col].iloc[row_idx]).strip().upper()
+            if len(val) == 2 and val.isalpha() and val != "US":
+                return val
+        return None
+
     # Apply anomaly flags (now uses pred_high for cost anomaly threshold)
     anomaly_flags = apply_anomaly_flags(
         dim_proba_y, fedex_dim_flags, actual_charges, predicted_charge, pred_high, pred_low
@@ -154,6 +174,7 @@ def run_inference(df: pd.DataFrame, clf, reg, residual_quantiles: Optional[dict]
             "dim_height": round(float(pd.to_numeric(df["Dimmed Height (cm)"].iloc[i], errors="coerce") or 0), 1),
             "zone": clean_zone(df["Pricing Zone"].iloc[i]),
             "shipment_date": shipment_dates.iloc[i].strftime("%Y-%m-%d") if shipment_dates is not None and pd.notna(shipment_dates.iloc[i]) else None,
+            "recipient_state": _extract_state(i),
             "dim_flag_probability": round(float(dim_proba_y[i]), 4),
             "actual_net_charge": round(float(actual_charges.iloc[i]), 2),
             "predicted_net_charge": round(float(predicted_charge[i]), 2),

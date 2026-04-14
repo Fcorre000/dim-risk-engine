@@ -7,6 +7,7 @@ export interface ShipmentResult {
   dim_height: number;               // Dimmed Height (cm)
   zone: string;                     // Pricing Zone, normalized ("02", "Other")
   shipment_date: string | null;     // "YYYY-MM-DD" or null if not in source
+  recipient_state: string | null;   // US state code, e.g. "CA", "TX" — null if not in source
   dim_flag_probability: number;     // 0.0 to 1.0
   actual_net_charge: number;        // dollars, from invoice
   predicted_net_charge: number;     // dollars, model output
@@ -18,7 +19,7 @@ export interface ShipmentResult {
   cost_confidence: 'Low' | 'Medium' | 'High' | 'Critical' | null;  // graded by overage/CI-width
 }
 
-export type PageId = 'overview' | 'anomalies' | 'by-zone' | 'by-sku' | 'trends' | 'export';
+export type PageId = 'overview' | 'anomalies' | 'by-zone' | 'by-state' | 'trends' | 'export';
 
 export interface StreamingKpis {
   dimFlaggedCount: number;

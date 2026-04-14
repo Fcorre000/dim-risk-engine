@@ -257,6 +257,46 @@ export function computeSkuData(results: ShipmentResult[]): SkuDataPoint[] {
     .sort((a, b) => b.gapTotal - a.gapTotal);
 }
 
+export interface StateDataPoint {
+  state: string;
+  count: number;
+  actualTotal: number;
+  predictedTotal: number;
+  gapTotal: number;
+  unexpected: number;
+}
+
+export function computeStateData(results: ShipmentResult[]): StateDataPoint[] {
+  if (results.length === 0) return [];
+
+  const stateMap: Record<string, {
+    count: number; actual: number; predicted: number; unexpected: number;
+  }> = {};
+
+  for (const r of results) {
+    const state = r.recipient_state;
+    if (!state) continue;
+    if (!stateMap[state]) {
+      stateMap[state] = { count: 0, actual: 0, predicted: 0, unexpected: 0 };
+    }
+    stateMap[state].count += 1;
+    stateMap[state].actual += r.actual_net_charge;
+    stateMap[state].predicted += r.predicted_net_charge;
+    if (r.dim_anomaly === 'Unexpected') stateMap[state].unexpected += 1;
+  }
+
+  return Object.entries(stateMap)
+    .map(([state, d]) => ({
+      state,
+      count: d.count,
+      actualTotal: parseFloat(d.actual.toFixed(2)),
+      predictedTotal: parseFloat(d.predicted.toFixed(2)),
+      gapTotal: parseFloat((d.actual - d.predicted).toFixed(2)),
+      unexpected: d.unexpected,
+    }))
+    .sort((a, b) => b.count - a.count);
+}
+
 export interface TrendsDataPoint {
   month: string;              // "May 2022", "Jun 2022", etc.
   actual: number;             // sum of actual_net_charge for this month bucket
