@@ -52,11 +52,11 @@ The backend streams results as **NDJSON** (newline-delimited JSON) so the fronte
 
 | Page | What it shows |
 |------|---------------|
-| **Overview** | Upload zone, KPI cards (total shipments, DIM anomaly rate, cost anomaly rate, total potential savings), zone distribution chart, actual vs. predicted cost scatter plot, anomaly summary table |
-| **Anomalies** | Filterable table of all flagged shipments — DIM anomalies ("Unexpected") and cost anomalies ("Review") |
+| **Overview** | Upload zone, KPI cards (total shipments, DIM anomaly rate, cost anomaly rate, total potential savings), zone distribution chart, per-shipment actual vs. predicted scatter plot (color-coded by anomaly type), anomaly summary table with click-to-copy |
+| **Anomalies** | Sortable table of all flagged shipments with click-to-copy rows and "Copy All" for bulk export to spreadsheets |
 | **By Zone** | Anomaly breakdown by FedEx pricing zone |
 | **By SKU** | Anomaly breakdown by service type |
-| **Trends** | Monthly time-series of anomaly rates and costs |
+| **Trends** | Daily or weekly charge trends and dispute candidate history, with granularity toggle |
 | **Export** | Download results as CSV for further analysis |
 
 ---
@@ -155,7 +155,7 @@ Traditional upload-then-wait APIs block the UI until the entire file is processe
 
 ## Getting Started
 
-Don't have a FedEx invoice handy? The dashboard includes a **"Try 3,000-row sample invoice"** button on the upload screen that loads real shipment data instantly — no file needed.
+Don't have a FedEx invoice handy? The dashboard includes a **"Try sample invoice"** button on the upload screen that loads 1,618 real shipments from a single month (April 2024) — no file needed.
 
 ### Prerequisites
 
@@ -199,7 +199,7 @@ dim-risk-engine/
 │   ├── main.py              # FastAPI app — /health, /analyze, /analyze/stream, /demo/stream
 │   ├── ingest.py            # Invoice parsing, feature engineering, chunked generator
 │   ├── inference.py         # XGBoost inference + anomaly flag logic
-│   ├── sample_invoice.csv   # 3,000-row sample — powers the demo button
+│   ├── sample_invoice.csv   # 1,618-row sample (April 2024) — powers the demo button
 │   ├── requirements.txt
 │   └── tests/
 ├── frontend/
@@ -208,9 +208,10 @@ dim-risk-engine/
 │   │   ├── pages/           # Overview, Anomalies, ByZone, BySku, Trends, Export
 │   │   ├── components/
 │   │   │   ├── upload/      # UploadZone (drag-drop + progress bar)
-│   │   │   ├── charts/      # ZoneChart, ActualVsPredicted, TrendsChart
+│   │   │   ├── charts/      # ZoneChart, ActualVsPredictedChart (scatter), TrendsChart
 │   │   │   ├── kpi/         # KpiCard
-│   │   │   ├── table/       # AnomalyTable
+│   │   │   ├── table/       # AnomalyTable (with click-to-copy)
+│   │   │   ├── ui/          # CopyButton, CopyTableButton (shared)
 │   │   │   └── layout/      # MainLayout, Sidebar
 │   │   ├── lib/             # Metrics computation utilities
 │   │   └── types/           # TypeScript interfaces
@@ -266,7 +267,7 @@ Same input as `/analyze`, but returns **NDJSON** for streaming consumption. Firs
 
 ### `GET /demo/stream`
 
-Streams results for the built-in 3,000-row sample invoice — no file upload needed. Response format is identical to `/analyze/stream`. Powers the "Try 3,000-row sample invoice" button in the dashboard.
+Streams results for the built-in 1,618-row sample invoice (April 2024, single month) — no file upload needed. Response format is identical to `/analyze/stream`. Powers the demo button in the dashboard.
 
 ---
 
@@ -282,6 +283,13 @@ Set `VITE_API_URL` on the frontend service to point to the API URL, and `CORS_OR
 ---
 
 ## Changelog
+
+### 2026-04-14 — Per-shipment scatter plot, daily/weekly trends, copy-to-clipboard
+- **Overview chart replaced:** Monthly bar chart → per-shipment scatter plot (actual vs predicted). Each dot is one shipment, color-coded by anomaly type (red = Unexpected, amber = Review, blue = Normal). Diagonal reference line shows perfect prediction.
+- **Trends granularity:** Trends page now defaults to **daily** aggregation with a Day/Week toggle — designed for single-month uploads (~1,000 shipments). XAxis labels rotate at -45 degrees for daily view.
+- **Click-to-copy:** Click any dot on the scatter plot or any row in the anomaly tables to select it — a detail bar appears with copy buttons for Tracking #, Actual, Predicted, Gap, and Full Row (tab-separated).
+- **Copy All:** Both anomaly tables (Overview and Anomalies page) have a "Copy All (N)" button that copies all visible/filtered rows as tab-separated text — pastes directly into Excel/Google Sheets.
+- **Demo data trimmed:** Sample invoice reduced from 3,000 multi-month rows to 1,618 rows from April 2024 only — matches the intended single-month upload workflow.
 
 ### 2026-04-12 — Model v2: retrained on 25-month dataset (Apr 2024 – Apr 2026)
 - Replaced both XGBoost models with versions trained on 57,600 shipments (was ~53,000 from 2022–2024)

@@ -71,12 +71,14 @@ candidates.
   counts overcharge above the upper bound, not the point prediction)
 
 ## Demo / sample data button
-- "Try 3,000-row sample invoice" button lives in `UploadZone` — calls `onDemoLoad` prop
+- "Try sample invoice" button lives in `UploadZone` — calls `onDemoLoad` prop
 - `onDemoLoad` in `App.tsx` hits `GET /demo/stream` on the backend (no file upload)
 - `/demo/stream` in `api/main.py` reads `api/sample_invoice.csv` server-side and streams
   NDJSON in the same format as `/analyze/stream`
-- `api/sample_invoice.csv` is the first 3,000 rows of the real invoice — UTF-8 (no BOM),
-  LF line endings, committed to git via `.gitignore` exception `!api/sample_invoice.csv`
+- `api/sample_invoice.csv` contains 1,618 shipments from **April 2024 only** — a single
+  month of real invoice data, matching the expected user workflow of uploading one month
+  at a time. UTF-8 (no BOM), LF line endings, committed to git via `.gitignore` exception
+  `!api/sample_invoice.csv`
 - Do NOT use a client-side fetch-blob-File approach for the demo — it breaks on the
   deployed static site because the CSV must be served by the backend, not the frontend
 
@@ -109,8 +111,49 @@ candidates.
 - `setTimeout(resolve, 0)` after each flushSync yields to the browser to actually paint
 - Full results array flushed every 500 rows (for charts); tail rows flushed once after
   the stream ends so KPIs don't freeze near completion
-- `OverviewPage` wraps computeKpis/computeZoneData/computeMonthlyData in `useMemo`
+- `OverviewPage` wraps computeKpis/computeZoneData in `useMemo`
   so they only rerun when `results` changes, not on every 50-row KPI update
+
+## Actual vs Predicted scatter plot (Overview page)
+- Replaced the old monthly bar chart with a per-shipment **ScatterChart** (Recharts)
+- X = predicted charge, Y = actual charge; diagonal y=x reference line = perfect prediction
+- Dots color-coded by anomaly: red `#f43f5e` = Unexpected, amber `#f59e0b` = Review,
+  blue `#3b82f6` = Normal
+- Props: receives `ShipmentResult[]` directly (not aggregated `MonthlyDataPoint[]`)
+- `computeMonthlyData()` in `lib/metrics.ts` still exists but is no longer called
+  by OverviewPage — kept for potential future use
+- Click a dot → persistent detail card appears below chart with copy buttons
+  (Tracking #, Actual, Predicted, Gap) and dismiss (X) button
+- Selected dot enlarges (r=6) with white stroke ring; unselected dots are r=4
+
+## Trends page — daily/weekly granularity
+- Users upload one month at a time (~1,000 shipments); monthly aggregation collapsed
+  to a single point — daily/weekly granularity fixes this
+- `TrendsGranularity` type: `'day' | 'week'` (exported from `lib/metrics.ts`)
+- `computeGranularTrendsData(results, granularity)` in `lib/metrics.ts`:
+  - `'day'`: labels like "Apr 14" (~30 points per month)
+  - `'week'`: labels like "Apr 8–14" (Monday-start, ~4-5 points per month)
+  - Returns `TrendsDataPoint[]` — reuses `.month` field for period label
+  - Sorts by raw ISO date internally before mapping to display labels
+- `TrendsPage` defaults to `'day'` with a select dropdown toggle ("Group by: Day / Week")
+- `TrendsChart` adjusts for denser data: minWidth `data.length * 28` (was `* 80`),
+  XAxis labels rotated -45 degrees when >10 data points
+- Old `computeTrendsData()` (monthly) still exists but is no longer called
+
+## Copy-to-clipboard functionality
+- **Shared `CopyButton` component** in `components/ui/CopyButton.tsx`:
+  - Reused by scatter chart detail card, AnomalyTable, and AnomaliesPage
+  - Click → copies text to clipboard, shows green checkmark for 1.5s
+- **`CopyTableButton`** (also in `CopyButton.tsx`):
+  - "Copy All (N)" button copies all visible rows as tab-separated text with header
+  - Format: `Tracking # | Service | Dims | Weight | Zone | Actual | Predicted Low |
+    Predicted High | Gap | Flag | Confidence` — pastes cleanly into Excel/Sheets
+  - `rowsToTsv(rows)` helper converts `ShipmentResult[]` to TSV string
+- **Scatter chart**: click dot → detail card with per-field copy buttons
+- **AnomalyTable (Overview)**: click row to select → copy bar with Tracking #, Actual,
+  Predicted Range, Gap, Full Row buttons; "Copy All" in header respects active filter
+- **AnomaliesPage**: same click-to-select + copy bar pattern; "Copy All" in header
+  copies in current sort order
 
 ## Source data reference
 The real FedEx invoice data is `2years.csv` (root dir, 57,600 rows, Apr 2024 – Apr 2026).
