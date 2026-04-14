@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import {
   ScatterChart,
   Scatter,
@@ -44,7 +44,40 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: any[] 
           Gap: {gap >= 0 ? '+' : ''}{formatDollars(gap)}
         </p>
       </div>
+      <p className="text-gray-600 mt-1.5">Click to select &amp; copy</p>
     </div>
+  );
+}
+
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [text]);
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-gray-700/60 hover:bg-gray-700 text-gray-300 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+      title={`Copy ${label}`}
+    >
+      {copied ? (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true">
+          <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+        </svg>
+      ) : (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5" aria-hidden="true">
+          <path d="M7 3.5A1.5 1.5 0 018.5 2h3.879a1.5 1.5 0 011.06.44l3.122 3.12A1.5 1.5 0 0117 6.622V12.5a1.5 1.5 0 01-1.5 1.5h-1v-3.379a3 3 0 00-.879-2.121L10.5 5.379A3 3 0 008.379 4.5H7v-1z" />
+          <path d="M4.5 6A1.5 1.5 0 003 7.5v9A1.5 1.5 0 004.5 18h7a1.5 1.5 0 001.5-1.5v-5.879a1.5 1.5 0 00-.44-1.06L9.44 6.439A1.5 1.5 0 008.378 6H4.5z" />
+        </svg>
+      )}
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -55,6 +88,8 @@ const LEGEND_ITEMS = [
 ];
 
 export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartProps) {
+  const [selected, setSelected] = useState<ScatterPoint | null>(null);
+
   const scatterData = useMemo<ScatterPoint[]>(() =>
     data.map((r) => ({
       predicted: r.predicted_net_charge,
@@ -76,6 +111,14 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
     const max = Math.max(...scatterData.map((d) => Math.max(d.actual, d.predicted)));
     return Math.ceil(max * 1.1);
   }, [scatterData]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleDotClick = useCallback((_: any, __: any, e: any) => {
+    // Recharts Scatter onClick gives (data, index, event) — data is the point payload
+    if (_?.payload) {
+      setSelected(_?.payload as ScatterPoint);
+    }
+  }, []);
 
   if (data.length === 0) {
     return (
@@ -123,13 +166,21 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
             strokeDasharray="6 3"
             strokeWidth={1.5}
           />
-          <Scatter data={scatterData} isAnimationActive={false}>
+          <Scatter data={scatterData} onClick={handleDotClick} cursor="pointer" isAnimationActive={false}>
             {scatterData.map((entry, idx) => (
-              <Cell key={idx} fill={entry.color} fillOpacity={0.7} r={4} />
+              <Cell
+                key={idx}
+                fill={entry.color}
+                fillOpacity={selected?.tracking === entry.tracking ? 1 : 0.7}
+                r={selected?.tracking === entry.tracking ? 6 : 4}
+                stroke={selected?.tracking === entry.tracking ? '#fff' : 'none'}
+                strokeWidth={selected?.tracking === entry.tracking ? 2 : 0}
+              />
             ))}
           </Scatter>
         </ScatterChart>
       </ResponsiveContainer>
+
       {/* Legend */}
       <div className="flex items-center justify-center gap-5 mt-3">
         {LEGEND_ITEMS.map((item) => (
@@ -139,6 +190,41 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
           </div>
         ))}
       </div>
+
+      {/* Selected shipment detail card with copy buttons */}
+      {selected && (
+        <div className="mt-4 rounded-lg bg-gray-800/70 border border-gray-700 px-4 py-3">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="space-y-1 text-xs min-w-0">
+              <p className="text-gray-100 font-semibold">{selected.tracking}</p>
+              <p className="text-gray-400">{selected.service} &middot; Zone {selected.zone}</p>
+              <div className="flex items-center gap-4 mt-1">
+                <span className="text-blue-400">Actual: {formatDollars(selected.actual)}</span>
+                <span className="text-gray-400">Predicted: {formatDollars(selected.predicted)}</span>
+                <span className={selected.gap > 0 ? 'text-rose-400 font-medium' : 'text-emerald-400 font-medium'}>
+                  Gap: {selected.gap >= 0 ? '+' : ''}{formatDollars(selected.gap)}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <CopyButton text={selected.tracking} label="Tracking #" />
+              <CopyButton text={formatDollars(selected.actual)} label="Actual" />
+              <CopyButton text={formatDollars(selected.predicted)} label="Predicted" />
+              <CopyButton text={`${selected.gap >= 0 ? '+' : ''}${formatDollars(selected.gap)}`} label="Gap" />
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="ml-1 p-1 rounded-md text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors"
+                aria-label="Dismiss"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
