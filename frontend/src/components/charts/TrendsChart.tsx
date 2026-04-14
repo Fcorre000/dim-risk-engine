@@ -67,10 +67,10 @@ export default function TrendsChart({ data }: TrendsChartProps) {
       {/* Chart 1: Actual vs Predicted charge line chart */}
       <div className="rounded-xl bg-gray-900 border border-gray-800 px-6 py-5">
         <h2 className="text-sm font-semibold text-gray-100 mb-1">
-          Actual vs Predicted Charge — Month Over Month
+          Actual vs Predicted Charge Trends
         </h2>
         <p className="text-xs text-gray-500 mb-4">
-          FedEx billed vs model prediction per monthly bucket. Rising gap signals increasing overcharges.
+          FedEx billed vs model prediction per period. Rising gap signals increasing overcharges.
         </p>
         {!hasData ? (
           <div className="h-[280px] flex items-center justify-center">
@@ -78,15 +78,18 @@ export default function TrendsChart({ data }: TrendsChartProps) {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <div style={{ minWidth: Math.max(400, data.length * 80) }}>
+            <div style={{ minWidth: Math.max(600, data.length * 28) }}>
               <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={data} margin={{ top: 16, right: 16, bottom: 0, left: 16 }}>
+                <LineChart data={data} margin={{ top: 16, right: 16, bottom: data.length > 10 ? 40 : 0, left: 16 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                   <XAxis
                     dataKey="month"
-                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
+                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
                     axisLine={{ stroke: '#374151' }}
                     tickLine={false}
+                    angle={data.length > 10 ? -45 : 0}
+                    textAnchor={data.length > 10 ? 'end' : 'middle'}
+                    height={data.length > 10 ? 60 : 30}
                   />
                   <YAxis
                     tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
@@ -128,7 +131,7 @@ export default function TrendsChart({ data }: TrendsChartProps) {
           Dispute Candidates Over Time
         </h2>
         <p className="text-xs text-gray-500 mb-4">
-          New and cumulative DIM anomaly ("Unexpected") shipments per monthly bucket. Upward cumulative trend means disputes are accumulating.
+          New and cumulative DIM anomaly ("Unexpected") shipments per period. Upward cumulative trend means disputes are accumulating.
         </p>
         {!hasData ? (
           <div className="h-[280px] flex items-center justify-center">
@@ -136,15 +139,18 @@ export default function TrendsChart({ data }: TrendsChartProps) {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <div style={{ minWidth: Math.max(400, data.length * 80) }}>
+            <div style={{ minWidth: Math.max(600, data.length * 28) }}>
               <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={data} margin={{ top: 16, right: 16, bottom: 0, left: 16 }}>
+                <LineChart data={data} margin={{ top: 16, right: 16, bottom: data.length > 10 ? 40 : 0, left: 16 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                   <XAxis
                     dataKey="month"
-                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
+                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
                     axisLine={{ stroke: '#374151' }}
                     tickLine={false}
+                    angle={data.length > 10 ? -45 : 0}
+                    textAnchor={data.length > 10 ? 'end' : 'middle'}
+                    height={data.length > 10 ? 60 : 30}
                   />
                   <YAxis
                     allowDecimals={false}

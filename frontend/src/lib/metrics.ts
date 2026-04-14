@@ -297,3 +297,111 @@ export function computeTrendsData(results: ShipmentResult[]): TrendsDataPoint[] 
     return { month, actual, predicted, gap, disputeCount: b.disputes, cumulativeDisputes: cumulative };
   });
 }
+
+export type TrendsGranularity = 'day' | 'week';
+
+/**
+ * Compact day label from "YYYY-MM-DD" → "Apr 14".
+ */
+function getDayKey(shipmentDate: string | null): string | null {
+  if (!shipmentDate) return null;
+  const d = new Date(shipmentDate + 'T00:00:00');
+  if (isNaN(d.getTime())) return null;
+  return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
+}
+
+/**
+ * Week label from date → "Apr 8–14" (Monday-start weeks).
+ * Handles month boundaries like "Apr 28–May 4".
+ */
+function getWeekKey(shipmentDate: string | null): string | null {
+  if (!shipmentDate) return null;
+  const d = new Date(shipmentDate + 'T00:00:00');
+  if (isNaN(d.getTime())) return null;
+  // Floor to Monday
+  const day = d.getDay();
+  const diff = day === 0 ? 6 : day - 1; // Monday = 0 offset
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - diff);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  const startLabel = `${MONTH_NAMES[monday.getMonth()]} ${monday.getDate()}`;
+  if (monday.getMonth() === sunday.getMonth()) {
+    return `${startLabel}–${sunday.getDate()}`;
+  }
+  return `${startLabel}–${MONTH_NAMES[sunday.getMonth()]} ${sunday.getDate()}`;
+}
+
+/**
+ * Sort key for a date string "YYYY-MM-DD" → numeric timestamp.
+ */
+function dateSortKey(dateStr: string): number {
+  const d = new Date(dateStr + 'T00:00:00');
+  return isNaN(d.getTime()) ? Infinity : d.getTime();
+}
+
+/**
+ * Aggregate shipment results into daily or weekly trend buckets.
+ * Same output shape as computeTrendsData — reuses TrendsDataPoint.month for period label.
+ */
+export function computeGranularTrendsData(
+  results: ShipmentResult[],
+  granularity: TrendsGranularity,
+): TrendsDataPoint[] {
+  const keyFn = granularity === 'day' ? getDayKey : getWeekKey;
+
+  // Use a sortable raw date as map key, store display label alongside
+  const buckets: Record<string, {
+    label: string;
+    sortDate: string;
+    actual: number;
+    predicted: number;
+    disputes: number;
+  }> = {};
+
+  for (const r of results) {
+    const label = keyFn(r.shipment_date) ?? 'Unknown';
+    const rawDate = r.shipment_date ?? '9999-99-99';
+
+    // For weeks, use the Monday as sort key
+    let sortDate = rawDate;
+    if (granularity === 'week' && r.shipment_date) {
+      const d = new Date(r.shipment_date + 'T00:00:00');
+      const day = d.getDay();
+      const diff = day === 0 ? 6 : day - 1;
+      d.setDate(d.getDate() - diff);
+      sortDate = d.toISOString().slice(0, 10);
+    }
+
+    const key = label;
+    if (!buckets[key]) {
+      buckets[key] = { label, sortDate, actual: 0, predicted: 0, disputes: 0 };
+    }
+    buckets[key].actual += r.actual_net_charge;
+    buckets[key].predicted += r.predicted_net_charge;
+    if (r.dim_anomaly === 'Unexpected') buckets[key].disputes += 1;
+  }
+
+  const sorted = Object.values(buckets).sort((a, b) => {
+    if (a.label === 'Unknown') return 1;
+    if (b.label === 'Unknown') return -1;
+    return dateSortKey(a.sortDate) - dateSortKey(b.sortDate);
+  });
+
+  let cumulative = 0;
+  return sorted.map((b) => {
+    const actual = parseFloat(b.actual.toFixed(2));
+    const predicted = parseFloat(b.predicted.toFixed(2));
+    const gap = parseFloat((b.actual - b.predicted).toFixed(2));
+    cumulative += b.disputes;
+    return {
+      month: b.label,
+      actual,
+      predicted,
+      gap,
+      disputeCount: b.disputes,
+      cumulativeDisputes: cumulative,
+    };
+  });
+}

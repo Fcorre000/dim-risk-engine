@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { UploadState } from '../types/api';
-import { computeKpis, computeZoneData, computeMonthlyData, formatDollars } from '../lib/metrics';
+import { computeKpis, computeZoneData, formatDollars } from '../lib/metrics';
 import UploadZone from '../components/upload/UploadZone';
 import UploadStatusCard from '../components/upload/UploadStatusCard';
 import KpiCard from '../components/kpi/KpiCard';
@@ -20,7 +20,6 @@ export default function OverviewPage({ uploadState, onUpload, onDemoLoad }: Over
   // array changes (every 500 rows), not on every 50-row KPI update
   const computedKpis = useMemo(() => computeKpis(results), [results]);
   const zoneData = useMemo(() => computeZoneData(results), [results]);
-  const monthlyData = useMemo(() => computeMonthlyData(results), [results]);
 
   // During streaming, use incremental KPIs (updated every 50 rows, O(1) per update)
   // instead of recomputing from the full results array which causes O(n²) total work.
@@ -85,7 +84,7 @@ export default function OverviewPage({ uploadState, onUpload, onDemoLoad }: Over
       {/* Charts row — 2 columns on lg, stacked on mobile */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ZoneChart data={zoneData} />
-        <ActualVsPredictedChart data={monthlyData} />
+        <ActualVsPredictedChart data={results} />
       </div>
 
       <AnomalyTable results={results} />
