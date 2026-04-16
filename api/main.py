@@ -68,7 +68,8 @@ app.add_middleware(
 
 
 class ShipmentResult(BaseModel):
-    tracking_number: str
+    row_index: int                 # globally unique per-upload id (stable React key)
+    tracking_number: Optional[str] # nullable — FedEx exports occasionally omit it
     service_type: str              # e.g. "FO", "SG", "PO"
     weight_lbs: float              # Original Weight (Pounds)
     dim_length: float              # Dimmed Length (in)
@@ -155,10 +156,12 @@ async def analyze_stream(request: Request, file: UploadFile = File(...)):
 
     def generate():
         yield _json.dumps({"__meta__": True, "total": total}) + "\n"
+        offset = 0
         try:
             for chunk in parse_invoice_chunks(io.BytesIO(contents), filename, chunksize=1000):
-                for row in run_inference(chunk, clf, reg, rq):
+                for row in run_inference(chunk, clf, reg, rq, start_index=offset):
                     yield _json.dumps(row) + "\n"
+                offset += len(chunk)
         except ValueError as e:
             yield _json.dumps({"__error__": str(e)}) + "\n"
 
@@ -187,10 +190,12 @@ async def demo_stream(request: Request):
 
     def generate():
         yield _json.dumps({"__meta__": True, "total": total}) + "\n"
+        offset = 0
         try:
             for chunk in parse_invoice_chunks(io.BytesIO(contents), filename, chunksize=1000):
-                for row in run_inference(chunk, clf, reg, rq):
+                for row in run_inference(chunk, clf, reg, rq, start_index=offset):
                     yield _json.dumps(row) + "\n"
+                offset += len(chunk)
         except ValueError as e:
             yield _json.dumps({"__error__": str(e)}) + "\n"
 

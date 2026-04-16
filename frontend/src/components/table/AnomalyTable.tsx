@@ -106,7 +106,8 @@ const PAGE_SIZE = 100;
 
 export default function AnomalyTable({ results }: AnomalyTableProps) {
   const [filterValue, setFilterValue] = useState<FilterValue>('all');
-  const [selectedTracking, setSelectedTracking] = useState<string | null>(null);
+  // Selection is by row_index — tracking_number can be null/duplicate in real data
+  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
 
   const flaggedRows = useMemo(
     () => results.filter((r) => r.dim_anomaly !== null || r.cost_anomaly !== null),
@@ -127,8 +128,8 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
   const displayRows = filteredRows.slice(0, PAGE_SIZE);
 
   const selectedRow = useMemo(
-    () => selectedTracking ? displayRows.find((r) => r.tracking_number === selectedTracking) ?? null : null,
-    [selectedTracking, displayRows],
+    () => selectedRowIndex != null ? displayRows.find((r) => r.row_index === selectedRowIndex) ?? null : null,
+    [selectedRowIndex, displayRows],
   );
 
   if (results.length === 0) {
@@ -201,20 +202,20 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
             ) : (
               displayRows.map((row, idx) => (
                   <tr
-                    key={row.tracking_number}
-                    onClick={() => setSelectedTracking(
-                      selectedTracking === row.tracking_number ? null : row.tracking_number
+                    key={row.row_index}
+                    onClick={() => setSelectedRowIndex(
+                      selectedRowIndex === row.row_index ? null : row.row_index
                     )}
                     className={[
                       'border-b border-gray-800/60 transition-colors duration-75 cursor-pointer',
-                      selectedTracking === row.tracking_number
+                      selectedRowIndex === row.row_index
                         ? 'bg-blue-500/10 ring-1 ring-inset ring-blue-500/30'
                         : idx % 2 === 0 ? 'bg-transparent' : 'bg-gray-800/20',
                       'hover:bg-gray-800/50',
                     ].join(' ')}
                   >
                     <td className="px-4 py-3 font-mono text-xs text-gray-300 whitespace-nowrap">
-                      {row.tracking_number}
+                      {row.tracking_number ?? <span className="text-gray-600 italic">no tracking #</span>}
                     </td>
                     <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
                       {row.service_type}
@@ -251,22 +252,22 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
         <div className="px-6 py-3 border-t border-gray-800 bg-gray-800/40">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <p className="text-xs text-gray-400">
-              Selected: <span className="text-gray-200 font-medium">{selectedRow.tracking_number}</span>
+              Selected: <span className="text-gray-200 font-medium">{selectedRow.tracking_number ?? `row #${selectedRow.row_index}`}</span>
             </p>
             <div className="flex items-center gap-2 flex-wrap">
-              <CopyButton text={selectedRow.tracking_number} label="Tracking #" />
+              <CopyButton text={selectedRow.tracking_number ?? ''} label="Tracking #" />
               <CopyButton text={formatDollars(selectedRow.actual_net_charge)} label="Actual" />
               <CopyButton
                 text={`${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}`}
                 label="Predicted Range"
               />
               <CopyButton
-                text={`${selectedRow.tracking_number}\t${selectedRow.service_type}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal'}`}
+                text={`${selectedRow.tracking_number ?? ''}\t${selectedRow.service_type}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal'}`}
                 label="Full Row"
               />
               <button
                 type="button"
-                onClick={() => setSelectedTracking(null)}
+                onClick={() => setSelectedRowIndex(null)}
                 className="ml-1 p-1 rounded-md text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors"
                 aria-label="Dismiss"
               >

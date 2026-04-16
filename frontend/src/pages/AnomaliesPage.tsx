@@ -59,7 +59,8 @@ function SortIcon({ col, sortCol, sortDir }: { col: SortColumn; sortCol: SortCol
 export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
   const [sortCol, setSortCol] = useState<SortColumn>('confidence');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [selectedTracking, setSelectedTracking] = useState<string | null>(null);
+  // Selection is by row_index (not tracking_number) because tracking can be null/duplicate
+  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [pageSize, setPageSize] = useState<PageSize>(100);
   const [page, setPage] = useState(1);
 
@@ -109,10 +110,10 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
     [sortedRows, pageStart, pageEnd],
   );
 
-  // Selection persists across pages — look up in full sorted list
+  // Selection persists across pages — look up in full sorted list by row_index
   const selectedRow = useMemo(
-    () => selectedTracking ? sortedRows.find((r) => r.tracking_number === selectedTracking) ?? null : null,
-    [selectedTracking, sortedRows],
+    () => selectedRowIndex != null ? sortedRows.find((r) => r.row_index === selectedRowIndex) ?? null : null,
+    [selectedRowIndex, sortedRows],
   );
 
   function handleSort(col: SortColumn) {
@@ -233,11 +234,11 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                 pagedRows.map((row, idx) => {
                   const gap = row.actual_net_charge - row.predicted_net_charge_high;
                   const conf = confidenceScore(row);
-                  const isSelected = selectedTracking === row.tracking_number;
+                  const isSelected = selectedRowIndex === row.row_index;
                   return (
                     <tr
-                      key={row.tracking_number}
-                      onClick={() => setSelectedTracking(isSelected ? null : row.tracking_number)}
+                      key={row.row_index}
+                      onClick={() => setSelectedRowIndex(isSelected ? null : row.row_index)}
                       className={[
                         'border-b border-gray-800/60 transition-colors duration-75 cursor-pointer',
                         isSelected
@@ -247,7 +248,7 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                       ].join(' ')}
                     >
                       <td className="px-4 py-3 font-mono text-xs text-gray-300 whitespace-nowrap">
-                        {row.tracking_number}
+                        {row.tracking_number ?? <span className="text-gray-600 italic">no tracking #</span>}
                       </td>
                       <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
                         {row.service_type}
@@ -345,10 +346,10 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
           <div className="px-6 py-3 border-t border-gray-800 bg-gray-800/40">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <p className="text-xs text-gray-400">
-                Selected: <span className="text-gray-200 font-medium">{selectedRow.tracking_number}</span>
+                Selected: <span className="text-gray-200 font-medium">{selectedRow.tracking_number ?? `row #${selectedRow.row_index}`}</span>
               </p>
               <div className="flex items-center gap-2 flex-wrap">
-                <CopyButton text={selectedRow.tracking_number} label="Tracking #" />
+                <CopyButton text={selectedRow.tracking_number ?? ''} label="Tracking #" />
                 <CopyButton text={formatDollars(selectedRow.actual_net_charge)} label="Actual" />
                 <CopyButton
                   text={`${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}`}
@@ -359,12 +360,12 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                   label="Gap"
                 />
                 <CopyButton
-                  text={`${selectedRow.tracking_number}\t${selectedRow.service_type}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal'}`}
+                  text={`${selectedRow.tracking_number ?? ''}\t${selectedRow.service_type}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal'}`}
                   label="Full Row"
                 />
                 <button
                   type="button"
-                  onClick={() => setSelectedTracking(null)}
+                  onClick={() => setSelectedRowIndex(null)}
                   className="ml-1 p-1 rounded-md text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors"
                   aria-label="Dismiss"
                 >

@@ -1,5 +1,6 @@
 export interface ShipmentResult {
-  tracking_number: string;
+  row_index: number;                // globally unique per-upload id (stable React key)
+  tracking_number: string | null;   // can be null when FedEx export omits the column
   service_type: string;             // e.g. "FO", "SG", "PO"
   weight_lbs: number;               // Original Weight (Pounds)
   dim_length: number;               // Dimmed Length (cm)

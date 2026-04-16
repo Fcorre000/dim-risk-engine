@@ -16,7 +16,7 @@ function rowToTsv(r: ShipmentResult): string {
     ? `${Math.round(r.dim_confidence * 100)}%`
     : r.cost_confidence ?? '';
   return [
-    r.tracking_number,
+    r.tracking_number ?? '',
     r.service_type,
     `${r.dim_length}x${r.dim_width}x${r.dim_height}`,
     `${r.weight_lbs} lbs`,
