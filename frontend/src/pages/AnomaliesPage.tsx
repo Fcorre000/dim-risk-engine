@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { ShipmentResult, UploadState } from '../types/api';
 import { formatDollars } from '../lib/metrics';
 import CopyButton, { CopyTableButton } from '../components/ui/CopyButton';
@@ -9,6 +9,9 @@ interface AnomaliesPageProps {
 
 type SortColumn = 'flag' | 'actual' | 'gap' | 'confidence';
 type SortDir = 'asc' | 'desc';
+
+const PAGE_SIZE_OPTIONS = [50, 100, 250, 500] as const;
+type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 
 function flagOrder(r: ShipmentResult): number {
   if (r.dim_anomaly === 'Unexpected') return 0;
@@ -57,6 +60,8 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
   const [sortCol, setSortCol] = useState<SortColumn>('confidence');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [selectedTracking, setSelectedTracking] = useState<string | null>(null);
+  const [pageSize, setPageSize] = useState<PageSize>(100);
+  const [page, setPage] = useState(1);
 
   const results = uploadState.results ?? [];
 
@@ -85,6 +90,26 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
     return rows;
   }, [flaggedRows, sortCol, sortDir]);
 
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
+
+  // Clamp page when underlying data shrinks (filter, new upload) or page size grows
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  // Reset to first page when sort changes so users see top of new ordering
+  useEffect(() => {
+    setPage(1);
+  }, [sortCol, sortDir, pageSize]);
+
+  const pageStart = (page - 1) * pageSize;
+  const pageEnd = Math.min(pageStart + pageSize, sortedRows.length);
+  const pagedRows = useMemo(
+    () => sortedRows.slice(pageStart, pageEnd),
+    [sortedRows, pageStart, pageEnd],
+  );
+
+  // Selection persists across pages — look up in full sorted list
   const selectedRow = useMemo(
     () => selectedTracking ? sortedRows.find((r) => r.tracking_number === selectedTracking) ?? null : null,
     [selectedTracking, sortedRows],
@@ -134,7 +159,23 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
             <span className="text-gray-400">Gap $</span>, or{' '}
             <span className="text-gray-400">Confidence</span> headers to sort
           </p>
-          <CopyTableButton rows={sortedRows} />
+          <div className="flex items-center gap-3">
+            <label htmlFor="page-size" className="text-xs text-gray-500">
+              Rows per page:
+            </label>
+            <select
+              id="page-size"
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value) as PageSize)}
+              aria-label="Rows per page"
+              className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 focus:ring-offset-gray-900"
+            >
+              {PAGE_SIZE_OPTIONS.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+            <CopyTableButton rows={sortedRows} />
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -189,7 +230,7 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                   </td>
                 </tr>
               ) : (
-                sortedRows.map((row, idx) => {
+                pagedRows.map((row, idx) => {
                   const gap = row.actual_net_charge - row.predicted_net_charge_high;
                   const conf = confidenceScore(row);
                   const isSelected = selectedTracking === row.tracking_number;
@@ -244,6 +285,60 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination footer */}
+        {sortedRows.length > 0 && (
+          <div className="px-6 py-3 border-t border-gray-800 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-xs text-gray-500 tabular-nums">
+              Showing <span className="text-gray-300">{(pageStart + 1).toLocaleString()}</span>
+              {'–'}
+              <span className="text-gray-300">{pageEnd.toLocaleString()}</span>
+              {' of '}
+              <span className="text-gray-300">{sortedRows.length.toLocaleString()}</span>
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setPage(1)}
+                disabled={page === 1}
+                aria-label="First page"
+                className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 disabled:cursor-not-allowed"
+              >
+                «
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                aria-label="Previous page"
+                className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 disabled:cursor-not-allowed"
+              >
+                ‹ Prev
+              </button>
+              <span className="px-3 py-1 text-xs text-gray-400 tabular-nums">
+                Page <span className="text-gray-200 font-medium">{page}</span> of {totalPages.toLocaleString()}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                aria-label="Next page"
+                className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 disabled:cursor-not-allowed"
+              >
+                Next ›
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage(totalPages)}
+                disabled={page >= totalPages}
+                aria-label="Last page"
+                className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 disabled:cursor-not-allowed"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Selected row copy bar */}
         {selectedRow && (
