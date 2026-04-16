@@ -19,9 +19,10 @@ interface ActualVsPredictedChartProps {
 }
 
 interface ScatterPoint {
+  rowIndex: number;          // stable identity for selection (tracking can be null)
   predicted: number;
   actual: number;
-  tracking: string;
+  tracking: string | null;
   service: string;
   zone: string;
   gap: number;
@@ -36,7 +37,7 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: any[] 
   const gap = point.gap;
   return (
     <div className="rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-xs shadow-lg">
-      <p className="font-semibold text-gray-100 mb-1">{point.tracking}</p>
+      <p className="font-semibold text-gray-100 mb-1">{point.tracking ?? <span className="italic text-gray-400">no tracking #</span>}</p>
       <p className="text-gray-400">{point.service} &middot; Zone {point.zone}</p>
       <div className="mt-1.5 space-y-0.5">
         <p className="text-blue-400">Actual: {formatDollars(point.actual)}</p>
@@ -61,6 +62,7 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
 
   const scatterData = useMemo<ScatterPoint[]>(() =>
     data.map((r) => ({
+      rowIndex: r.row_index,
       predicted: r.predicted_net_charge,
       actual: r.actual_net_charge,
       tracking: r.tracking_number,
@@ -140,10 +142,10 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
               <Cell
                 key={idx}
                 fill={entry.color}
-                fillOpacity={selected?.tracking === entry.tracking ? 1 : 0.7}
-                r={selected?.tracking === entry.tracking ? 6 : 4}
-                stroke={selected?.tracking === entry.tracking ? '#fff' : 'none'}
-                strokeWidth={selected?.tracking === entry.tracking ? 2 : 0}
+                fillOpacity={selected?.rowIndex === entry.rowIndex ? 1 : 0.7}
+                r={selected?.rowIndex === entry.rowIndex ? 6 : 4}
+                stroke={selected?.rowIndex === entry.rowIndex ? '#fff' : 'none'}
+                strokeWidth={selected?.rowIndex === entry.rowIndex ? 2 : 0}
               />
             ))}
           </Scatter>
@@ -165,7 +167,7 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
         <div className="mt-4 rounded-lg bg-gray-800/70 border border-gray-700 px-4 py-3">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="space-y-1 text-xs min-w-0">
-              <p className="text-gray-100 font-semibold">{selected.tracking}</p>
+              <p className="text-gray-100 font-semibold">{selected.tracking ?? <span className="italic text-gray-400">no tracking #</span>}</p>
               <p className="text-gray-400">{selected.service} &middot; Zone {selected.zone}</p>
               <div className="flex items-center gap-4 mt-1">
                 <span className="text-blue-400">Actual: {formatDollars(selected.actual)}</span>
@@ -176,7 +178,7 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <CopyButton text={selected.tracking} label="Tracking #" />
+              <CopyButton text={selected.tracking ?? ''} label="Tracking #" />
               <CopyButton text={formatDollars(selected.actual)} label="Actual" />
               <CopyButton text={formatDollars(selected.predicted)} label="Predicted" />
               <CopyButton text={`${selected.gap >= 0 ? '+' : ''}${formatDollars(selected.gap)}`} label="Gap" />

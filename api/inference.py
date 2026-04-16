@@ -94,7 +94,7 @@ def apply_anomaly_flags(
     return flags
 
 
-def run_inference(df: pd.DataFrame, clf, reg, residual_quantiles: Optional[dict] = None) -> list:
+def run_inference(df: pd.DataFrame, clf, reg, residual_quantiles: Optional[dict] = None, start_index: int = 0) -> list:
     """Run both XGBoost models on invoice DataFrame, apply anomaly logic, return results.
 
     Args:
@@ -102,6 +102,10 @@ def run_inference(df: pd.DataFrame, clf, reg, residual_quantiles: Optional[dict]
         clf: Loaded xgb_classifier (from app.state.clf). Predicts DIM flag probability.
         reg: Loaded xgb_regressor (from app.state.reg). Predicts net charge in log-space.
         residual_quantiles: Dict with 'q05' and 'q95' keys (log-space residual bounds).
+        start_index: Offset for the per-row `row_index` field. Streaming callers pass
+            a running total across chunks so every result has a globally unique id
+            (used as a stable React key on the frontend — tracking numbers can be
+            null/duplicate in real FedEx exports).
 
     Returns:
         List of dicts with shipment data, predictions, intervals, and anomaly flags.
@@ -165,8 +169,14 @@ def run_inference(df: pd.DataFrame, clf, reg, residual_quantiles: Optional[dict]
     # Build result list
     results = []
     for i in range(len(df)):
+        # Tracking number can be missing in real FedEx exports — keep as None rather than
+        # serializing NaN as the string "nan", which would (a) display literally in the UI
+        # and (b) collide as a React key for every NaN row, breaking sort/reconciliation.
+        tn_raw = df["Tracking Number"].iloc[i]
+        tracking_number = str(tn_raw) if pd.notna(tn_raw) else None
         results.append({
-            "tracking_number": str(df["Tracking Number"].iloc[i]),
+            "row_index": start_index + i,
+            "tracking_number": tracking_number,
             "service_type": str(df["Service Type"].iloc[i]),
             "weight_lbs": round(float(pd.to_numeric(df["Original Weight (Pounds)"].iloc[i], errors="coerce") or 0), 1),
             "dim_length": round(float(pd.to_numeric(df["Dimmed Length (cm)"].iloc[i], errors="coerce") or 0), 1),

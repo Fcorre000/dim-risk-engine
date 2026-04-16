@@ -119,14 +119,16 @@ def test_run_inference_returns_list(sample_df, models_dir):
     assert isinstance(results, list)
     assert len(results) == len(sample_df)
     expected_keys = {
-        "tracking_number", "service_type", "weight_lbs", "dim_length", "dim_width",
-        "dim_height", "zone", "shipment_date", "dim_flag_probability",
+        "row_index", "tracking_number", "service_type", "weight_lbs", "dim_length", "dim_width",
+        "dim_height", "zone", "shipment_date", "recipient_state", "dim_flag_probability",
         "actual_net_charge", "predicted_net_charge",
         "predicted_net_charge_low", "predicted_net_charge_high",
         "dim_anomaly", "dim_confidence", "cost_anomaly", "cost_confidence",
     }
     assert set(results[0].keys()) == expected_keys
-    assert isinstance(results[0]["tracking_number"], str)
+    assert isinstance(results[0]["row_index"], int)
+    # tracking_number can be None when source row has missing tracking column
+    assert results[0]["tracking_number"] is None or isinstance(results[0]["tracking_number"], str)
     assert 0.0 <= results[0]["dim_flag_probability"] <= 1.0
     assert results[0]["predicted_net_charge"] > 0
     assert results[0]["predicted_net_charge_low"] <= results[0]["predicted_net_charge"]

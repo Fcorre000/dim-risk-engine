@@ -116,7 +116,7 @@ export default function ExportPage({ uploadState }: ExportPageProps) {
                     const isUnexpected = row.dim_anomaly === 'Unexpected';
                     return (
                       <tr
-                        key={row.tracking_number}
+                        key={row.row_index}
                         className={[
                           'border-b border-gray-800/60 transition-colors duration-75',
                           idx % 2 === 0 ? 'bg-transparent' : 'bg-gray-800/20',
@@ -124,7 +124,7 @@ export default function ExportPage({ uploadState }: ExportPageProps) {
                         ].join(' ')}
                       >
                         <td className="px-4 py-3 font-mono text-xs text-gray-300 whitespace-nowrap">
-                          {row.tracking_number}
+                          {row.tracking_number ?? <span className="text-gray-600 italic">no tracking #</span>}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           {isUnexpected ? (

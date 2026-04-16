@@ -28,7 +28,7 @@ export function generateDisputeCandidatesCsv(candidates: ShipmentResult[]): stri
     const predHigh = r.predicted_net_charge_high.toFixed(2);
     const gap = (r.actual_net_charge - r.predicted_net_charge_high).toFixed(2);
     const confidence = r.dim_confidence != null ? `${Math.round(r.dim_confidence * 100)}%` : (r.cost_confidence ?? '');
-    return `"${r.tracking_number}",${r.service_type},${dims},${r.weight_lbs},${r.zone},${flagType},${actual},${predLow},${predicted},${predHigh},${gap},${confidence}`;
+    return `"${r.tracking_number ?? ''}",${r.service_type},${dims},${r.weight_lbs},${r.zone},${flagType},${actual},${predLow},${predicted},${predHigh},${gap},${confidence}`;
   });
   return [HEADER, ...rows].join('\r\n');
 }
