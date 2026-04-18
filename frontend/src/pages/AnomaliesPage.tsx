@@ -25,41 +25,45 @@ function confidenceScore(r: ShipmentResult): number {
   return 0;
 }
 
-function FlagBadge({ row }: { row: ShipmentResult }) {
+function FlagCell({ row }: { row: ShipmentResult }) {
   if (row.dim_anomaly === 'Unexpected') {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30 whitespace-nowrap">
-        Unexpected
+      <span className="tabular-nums whitespace-nowrap" style={{ color: 'var(--crit)' }}>
+        ▲ UNEXPECTED
         {row.dim_confidence != null && (
-          <span className="text-rose-400/70 font-normal">{Math.round(row.dim_confidence * 100)}%</span>
+          <span className="ml-1 opacity-70">{Math.round(row.dim_confidence * 100)}%</span>
         )}
       </span>
     );
   }
   if (row.cost_anomaly === 'Review') {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30 whitespace-nowrap">
-        Review
-        {row.cost_confidence && (
-          <span className="text-amber-400/70 font-normal">&middot; {row.cost_confidence}</span>
-        )}
+      <span className="tabular-nums whitespace-nowrap" style={{ color: 'var(--warn)' }}>
+        ■ REVIEW
+        {row.cost_confidence && <span className="ml-1 opacity-70">· {row.cost_confidence}</span>}
       </span>
     );
   }
-  return null;
+  return <span style={{ color: 'var(--muted)' }}>· OK</span>;
 }
 
-function SortIcon({ col, sortCol, sortDir }: { col: SortColumn; sortCol: SortColumn; sortDir: SortDir }) {
+function SortMark({ col, sortCol, sortDir }: { col: SortColumn; sortCol: SortColumn; sortDir: SortDir }) {
   if (col !== sortCol) {
-    return <span className="ml-1 text-gray-600">⇅</span>;
+    return <span className="ml-1 opacity-50">⇅</span>;
   }
-  return <span className="ml-1 text-blue-400">{sortDir === 'asc' ? '▲' : '▼'}</span>;
+  return (
+    <span className="ml-1" style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>
+      {sortDir === 'asc' ? '▲' : '▼'}
+    </span>
+  );
 }
+
+const pagerBtn =
+  'px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer transition-colors duration-150 border';
 
 export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
   const [sortCol, setSortCol] = useState<SortColumn>('confidence');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  // Selection is by row_index (not tracking_number) because tracking can be null/duplicate
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [pageSize, setPageSize] = useState<PageSize>(100);
   const [page, setPage] = useState(1);
@@ -93,12 +97,10 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
 
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
 
-  // Clamp page when underlying data shrinks (filter, new upload) or page size grows
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  // Reset to first page when sort changes so users see top of new ordering
   useEffect(() => {
     setPage(1);
   }, [sortCol, sortDir, pageSize]);
@@ -110,9 +112,8 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
     [sortedRows, pageStart, pageEnd],
   );
 
-  // Selection persists across pages — look up in full sorted list by row_index
   const selectedRow = useMemo(
-    () => selectedRowIndex != null ? sortedRows.find((r) => r.row_index === selectedRowIndex) ?? null : null,
+    () => (selectedRowIndex != null ? sortedRows.find((r) => r.row_index === selectedRowIndex) ?? null : null),
     [selectedRowIndex, sortedRows],
   );
 
@@ -125,51 +126,55 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
     }
   }
 
-  const thBase = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap';
-  const thSortable = `${thBase} cursor-pointer hover:text-gray-300 select-none transition-colors`;
-
   if (results.length === 0) {
     return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-100">Anomalies</h1>
-          <p className="text-gray-500 text-sm mt-1">All flagged shipments with sortable columns</p>
-        </div>
-        <div className="rounded-xl bg-gray-900 border border-gray-800 px-6 py-16 flex items-center justify-center">
-          <p className="text-sm text-gray-500">Upload an invoice on the Overview page to see anomalies</p>
-        </div>
+      <div className="space-y-4">
+        <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
+          &gt; 01 ANOMALIES · DISPUTE_QUEUE.ALL
+        </h1>
+        <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
+          <div className="p-10 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
+            NO SIGNAL — INGEST AN INVOICE ON 00 OVERVIEW
+          </div>
+        </section>
       </div>
     );
   }
 
+  const thBase = 'px-4 py-2 text-left tracking-widest whitespace-nowrap';
+  const thSortable = `${thBase} cursor-pointer select-none`;
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-100">Anomalies</h1>
-        <p className="text-gray-500 text-sm mt-1">
-          {flaggedRows.length.toLocaleString()} flagged of {results.length.toLocaleString()} total shipments
-          <span className="ml-2 text-gray-600">Click a row to copy details</span>
+    <div className="space-y-4">
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
+          &gt; 01 ANOMALIES · DISPUTE_QUEUE.ALL
+        </h1>
+        <p className="text-[10px] tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
+          {flaggedRows.length.toLocaleString()} / {results.length.toLocaleString()} FLAGGED · CLICK ROW TO COPY
         </p>
       </div>
 
-      <div className="rounded-xl bg-gray-900 border border-gray-800">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 flex-wrap gap-3">
-          <p className="text-xs text-gray-500">
-            Click <span className="text-gray-400">Flag</span>,{' '}
-            <span className="text-gray-400">Actual $</span>,{' '}
-            <span className="text-gray-400">Gap $</span>, or{' '}
-            <span className="text-gray-400">Confidence</span> headers to sort
-          </p>
-          <div className="flex items-center gap-3">
-            <label htmlFor="page-size" className="text-xs text-gray-500">
-              Rows per page:
-            </label>
+      <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
+        {/* Toolbar */}
+        <div
+          className="px-4 py-2 border-b flex items-center justify-between gap-3 flex-wrap text-[10px] tracking-widest"
+          style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
+        >
+          <span>&gt; TBL.01 · DISPUTE_QUEUE.ALL</span>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="hidden sm:inline">
+              SORT BY <span style={{ color: 'var(--text)' }}>{sortCol.toUpperCase()}</span>{' '}
+              <span style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>{sortDir === 'asc' ? '▲' : '▼'}</span>
+            </span>
+            <label htmlFor="page-size" className="tracking-widest">ROWS</label>
             <select
               id="page-size"
               value={pageSize}
               onChange={(e) => setPageSize(Number(e.target.value) as PageSize)}
               aria-label="Rows per page"
-              className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 focus:ring-offset-gray-900"
+              className="border px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
+              style={{ background: 'var(--panel)', borderColor: 'var(--border-2)', color: 'var(--text)' }}
             >
               {PAGE_SIZE_OPTIONS.map((n) => (
                 <option key={n} value={n}>{n}</option>
@@ -179,31 +184,32 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
           </div>
         </div>
 
+        {/* Table */}
         <div className="overflow-x-auto">
-          <table className="w-full text-sm" role="table" aria-label="Flagged shipments sortable table">
+          <table className="w-full text-[11.5px] font-jb" role="table" aria-label="Flagged shipments sortable table">
             <thead>
-              <tr className="border-b border-gray-800">
-                <th scope="col" className={thBase}>Tracking #</th>
-                <th scope="col" className={thBase}>Service</th>
-                <th scope="col" className={thBase}>Dims</th>
-                <th scope="col" className={thBase}>Weight</th>
-                <th scope="col" className={thBase}>Zone</th>
+              <tr className="border-b text-[9px]" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
+                <th scope="col" className={thBase}>SHIPMENT_ID</th>
+                <th scope="col" className={thBase}>SVC</th>
+                <th scope="col" className={thBase}>DIMS</th>
+                <th scope="col" className={`${thBase} text-right`}>LB</th>
+                <th scope="col" className={thBase}>Z</th>
                 <th
                   scope="col"
-                  className={thSortable}
+                  className={`${thSortable} text-right`}
                   onClick={() => handleSort('actual')}
                   aria-sort={sortCol === 'actual' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                 >
-                  Actual $<SortIcon col="actual" sortCol={sortCol} sortDir={sortDir} />
+                  ACT<SortMark col="actual" sortCol={sortCol} sortDir={sortDir} />
                 </th>
-                <th scope="col" className={thBase}>Predicted Range</th>
+                <th scope="col" className={`${thBase} text-right`}>PRED</th>
                 <th
                   scope="col"
-                  className={thSortable}
+                  className={`${thSortable} text-right`}
                   onClick={() => handleSort('gap')}
                   aria-sort={sortCol === 'gap' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                 >
-                  Gap $<SortIcon col="gap" sortCol={sortCol} sortDir={sortDir} />
+                  RESID<SortMark col="gap" sortCol={sortCol} sortDir={sortDir} />
                 </th>
                 <th
                   scope="col"
@@ -211,27 +217,27 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                   onClick={() => handleSort('flag')}
                   aria-sort={sortCol === 'flag' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                 >
-                  Flag<SortIcon col="flag" sortCol={sortCol} sortDir={sortDir} />
+                  FLAG<SortMark col="flag" sortCol={sortCol} sortDir={sortDir} />
                 </th>
                 <th
                   scope="col"
-                  className={thSortable}
+                  className={`${thSortable} text-right`}
                   onClick={() => handleSort('confidence')}
                   aria-sort={sortCol === 'confidence' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
                 >
-                  Confidence<SortIcon col="confidence" sortCol={sortCol} sortDir={sortDir} />
+                  CONF<SortMark col="confidence" sortCol={sortCol} sortDir={sortDir} />
                 </th>
               </tr>
             </thead>
             <tbody>
               {sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-sm text-gray-500">
-                    No flagged shipments found
+                  <td colSpan={10} className="px-4 py-8 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
+                    NO FLAGGED SHIPMENTS
                   </td>
                 </tr>
               ) : (
-                pagedRows.map((row, idx) => {
+                pagedRows.map((row) => {
                   const gap = row.actual_net_charge - row.predicted_net_charge_high;
                   const conf = confidenceScore(row);
                   const isSelected = selectedRowIndex === row.row_index;
@@ -239,44 +245,43 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                     <tr
                       key={row.row_index}
                       onClick={() => setSelectedRowIndex(isSelected ? null : row.row_index)}
-                      className={[
-                        'border-b border-gray-800/60 transition-colors duration-75 cursor-pointer',
-                        isSelected
-                          ? 'bg-blue-500/10 ring-1 ring-inset ring-blue-500/30'
-                          : idx % 2 === 0 ? 'bg-transparent' : 'bg-gray-800/20',
-                        'hover:bg-gray-800/50',
-                      ].join(' ')}
+                      className="border-b cursor-pointer transition-colors duration-150"
+                      style={{
+                        borderColor: 'var(--border)',
+                        background: isSelected ? 'var(--row-hov)' : 'transparent',
+                      }}
+                      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--row-hov)'; }}
+                      onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
                     >
-                      <td className="px-4 py-3 font-mono text-xs text-gray-300 whitespace-nowrap">
-                        {row.tracking_number ?? <span className="text-gray-600 italic">no tracking #</span>}
+                      <td className="px-4 py-1.5 tabular-nums">
+                        {row.tracking_number ?? <span className="italic opacity-60">no tracking #</span>}
                       </td>
-                      <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
-                        {row.service_type}
-                      </td>
-                      <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
+                      <td className="px-4 py-1.5" style={{ color: 'var(--muted)' }}>{row.service_type}</td>
+                      <td className="px-4 py-1.5 tabular-nums" style={{ color: 'var(--muted)' }}>
                         {row.dim_length}×{row.dim_width}×{row.dim_height}
                       </td>
-                      <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
-                        {row.weight_lbs} lbs
+                      <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
+                        {row.weight_lbs}
                       </td>
-                      <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
-                        Zone {row.zone}
-                      </td>
-                      <td className="px-4 py-3 text-gray-300 font-medium tabular-nums whitespace-nowrap">
+                      <td className="px-4 py-1.5" style={{ color: 'var(--muted)' }}>{row.zone}</td>
+                      <td className="px-4 py-1.5 tabular-nums text-right">
                         {formatDollars(row.actual_net_charge)}
                       </td>
-                      <td className="px-4 py-3 text-gray-400 tabular-nums whitespace-nowrap">
-                        <span>{formatDollars(row.predicted_net_charge_low)}</span>
-                        <span className="text-gray-600 mx-0.5">&ndash;</span>
-                        <span>{formatDollars(row.predicted_net_charge_high)}</span>
+                      <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
+                        {formatDollars(row.predicted_net_charge_low)}
+                        <span className="mx-0.5 opacity-50">–</span>
+                        {formatDollars(row.predicted_net_charge_high)}
                       </td>
-                      <td className={`px-4 py-3 tabular-nums font-medium whitespace-nowrap ${gap > 0 ? 'text-rose-400' : gap < 0 ? 'text-emerald-400' : 'text-gray-500'}`}>
+                      <td
+                        className="px-4 py-1.5 tabular-nums text-right"
+                        style={{ color: gap > 0 ? 'var(--crit)' : gap < 0 ? 'var(--accent)' : 'var(--muted)' }}
+                      >
                         {gap >= 0 ? '+' : ''}{formatDollars(gap)}
                       </td>
-                      <td className="px-4 py-3">
-                        <FlagBadge row={row} />
+                      <td className="px-4 py-1.5">
+                        <FlagCell row={row} />
                       </td>
-                      <td className="px-4 py-3 tabular-nums text-gray-400 whitespace-nowrap">
+                      <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
                         {conf > 0 ? `${Math.round(conf * 100)}%` : '—'}
                       </td>
                     </tr>
@@ -289,52 +294,38 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
 
         {/* Pagination footer */}
         {sortedRows.length > 0 && (
-          <div className="px-6 py-3 border-t border-gray-800 flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-xs text-gray-500 tabular-nums">
-              Showing <span className="text-gray-300">{(pageStart + 1).toLocaleString()}</span>
-              {'–'}
-              <span className="text-gray-300">{pageEnd.toLocaleString()}</span>
-              {' of '}
-              <span className="text-gray-300">{sortedRows.length.toLocaleString()}</span>
-            </p>
+          <div
+            className="px-4 py-2 border-t flex items-center justify-between gap-3 flex-wrap text-[10px] tracking-widest"
+            style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
+          >
+            <span className="tabular-nums">
+              SHOW <span style={{ color: 'var(--text)' }}>{(pageStart + 1).toLocaleString()}</span>
+              <span className="opacity-50">–</span>
+              <span style={{ color: 'var(--text)' }}>{pageEnd.toLocaleString()}</span>{' '}
+              / <span style={{ color: 'var(--text)' }}>{sortedRows.length.toLocaleString()}</span>
+            </span>
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setPage(1)}
-                disabled={page === 1}
-                aria-label="First page"
-                className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 disabled:cursor-not-allowed"
-              >
+              <button type="button" onClick={() => setPage(1)} disabled={page === 1} aria-label="First page"
+                className={pagerBtn}
+                style={{ borderColor: 'var(--border-2)', background: 'transparent', color: page === 1 ? 'var(--muted)' : 'var(--text)', opacity: page === 1 ? 0.4 : 1 }}>
                 «
               </button>
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                aria-label="Previous page"
-                className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 disabled:cursor-not-allowed"
-              >
-                ‹ Prev
+              <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} aria-label="Previous page"
+                className={pagerBtn}
+                style={{ borderColor: 'var(--border-2)', background: 'transparent', color: page === 1 ? 'var(--muted)' : 'var(--text)', opacity: page === 1 ? 0.4 : 1 }}>
+                ‹ PREV
               </button>
-              <span className="px-3 py-1 text-xs text-gray-400 tabular-nums">
-                Page <span className="text-gray-200 font-medium">{page}</span> of {totalPages.toLocaleString()}
+              <span className="px-3 tabular-nums">
+                PG <span style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>{page}</span> / {totalPages.toLocaleString()}
               </span>
-              <button
-                type="button"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-                aria-label="Next page"
-                className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 disabled:cursor-not-allowed"
-              >
-                Next ›
+              <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages} aria-label="Next page"
+                className={pagerBtn}
+                style={{ borderColor: 'var(--border-2)', background: 'transparent', color: page >= totalPages ? 'var(--muted)' : 'var(--text)', opacity: page >= totalPages ? 0.4 : 1 }}>
+                NEXT ›
               </button>
-              <button
-                type="button"
-                onClick={() => setPage(totalPages)}
-                disabled={page >= totalPages}
-                aria-label="Last page"
-                className="px-2 py-1 text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 disabled:cursor-not-allowed"
-              >
+              <button type="button" onClick={() => setPage(totalPages)} disabled={page >= totalPages} aria-label="Last page"
+                className={pagerBtn}
+                style={{ borderColor: 'var(--border-2)', background: 'transparent', color: page >= totalPages ? 'var(--muted)' : 'var(--text)', opacity: page >= totalPages ? 0.4 : 1 }}>
                 »
               </button>
             </div>
@@ -343,41 +334,41 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
 
         {/* Selected row copy bar */}
         {selectedRow && (
-          <div className="px-6 py-3 border-t border-gray-800 bg-gray-800/40">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <p className="text-xs text-gray-400">
-                Selected: <span className="text-gray-200 font-medium">{selectedRow.tracking_number ?? `row #${selectedRow.row_index}`}</span>
-              </p>
-              <div className="flex items-center gap-2 flex-wrap">
-                <CopyButton text={selectedRow.tracking_number ?? ''} label="Tracking #" />
-                <CopyButton text={formatDollars(selectedRow.actual_net_charge)} label="Actual" />
-                <CopyButton
-                  text={`${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}`}
-                  label="Predicted Range"
-                />
-                <CopyButton
-                  text={`${(selectedRow.actual_net_charge - selectedRow.predicted_net_charge_high) >= 0 ? '+' : ''}${formatDollars(selectedRow.actual_net_charge - selectedRow.predicted_net_charge_high)}`}
-                  label="Gap"
-                />
-                <CopyButton
-                  text={`${selectedRow.tracking_number ?? ''}\t${selectedRow.service_type}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal'}`}
-                  label="Full Row"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSelectedRowIndex(null)}
-                  className="ml-1 p-1 rounded-md text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors"
-                  aria-label="Dismiss"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                  </svg>
-                </button>
-              </div>
+          <div
+            className="px-4 py-2 border-t flex items-center justify-between gap-3 flex-wrap text-[11px]"
+            style={{ borderColor: 'var(--border)', background: 'var(--row-hov)' }}
+          >
+            <span style={{ color: 'var(--muted)' }}>
+              SELECTED <span style={{ color: 'var(--text)' }}>{selectedRow.tracking_number ?? `row #${selectedRow.row_index}`}</span>
+            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <CopyButton text={selectedRow.tracking_number ?? ''} label="Tracking #" />
+              <CopyButton text={formatDollars(selectedRow.actual_net_charge)} label="Actual" />
+              <CopyButton
+                text={`${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}`}
+                label="Predicted Range"
+              />
+              <CopyButton
+                text={`${(selectedRow.actual_net_charge - selectedRow.predicted_net_charge_high) >= 0 ? '+' : ''}${formatDollars(selectedRow.actual_net_charge - selectedRow.predicted_net_charge_high)}`}
+                label="Gap"
+              />
+              <CopyButton
+                text={`${selectedRow.tracking_number ?? ''}\t${selectedRow.service_type}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal'}`}
+                label="Full Row"
+              />
+              <button
+                type="button"
+                onClick={() => setSelectedRowIndex(null)}
+                className="px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
+                style={{ color: 'var(--muted)' }}
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
             </div>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

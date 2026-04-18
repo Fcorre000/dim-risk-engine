@@ -1,89 +1,142 @@
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from 'recharts';
-import type { ZoneDataPoint } from '../../lib/metrics';
+import type { ZoneDetailPoint } from '../../lib/metrics';
 
 interface ZoneChartProps {
-  data: ZoneDataPoint[];
+  /** Per-zone financial detail. Required to surface recoverable-dollar polygon. */
+  data: ZoneDetailPoint[];
+  /** Title override (e.g. for full-width page). */
+  title?: string;
 }
 
-interface CustomTooltipProps {
-  active?: boolean;
-  payload?: Array<{ value: number; payload: ZoneDataPoint }>;
-  label?: string;
+const CX = 220;
+const CY = 220;
+const R = 150;
+
+function fmt$k(v: number): string {
+  return '$' + Math.round(v / 1000).toLocaleString('en-US') + 'k';
 }
 
-function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
-  return (
-    <div className="rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-xs shadow-lg">
-      <p className="font-semibold text-gray-100 mb-1">Zone {label}</p>
-      <p className="text-gray-400">
-        DIM flag rate: <span className="text-blue-400 font-medium">{d.dimRate}%</span>
-      </p>
-      <p className="text-gray-400">Shipments: {d.count.toLocaleString()}</p>
-    </div>
-  );
-}
-
-export default function ZoneChart({ data }: ZoneChartProps) {
+export default function ZoneChart({ data, title = '> FIG.01 · ZONE RECOVER × FLAG.RATE' }: ZoneChartProps) {
   if (data.length === 0) {
     return (
-      <div className="rounded-xl bg-gray-900 border border-gray-800 px-6 py-10 flex items-center justify-center">
-        <p className="text-sm text-gray-500">Upload an invoice to see DIM flag rate by zone</p>
-      </div>
+      <figure className="border p-4" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
+        <div className="flex items-center justify-between text-[10px] tracking-widest mb-2" style={{ color: 'var(--muted)' }}>
+          <span>{title}</span>
+          <span style={{ color: 'var(--muted)' }}>IDLE</span>
+        </div>
+        <div className="p-10 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
+          NO SIGNAL — INGEST AN INVOICE
+        </div>
+      </figure>
     );
   }
 
+  // Use |gapTotal| for radius scale — falls back to shipment count when all gaps are zero
+  const usableValue = (z: ZoneDetailPoint) => Math.max(0, z.gapTotal);
+  let max = Math.max(...data.map(usableValue));
+  let scaledBy: 'gap' | 'count' = 'gap';
+  if (max <= 0) {
+    max = Math.max(...data.map(z => z.count));
+    scaledBy = 'count';
+  }
+
+  const pointFor = (z: ZoneDetailPoint, i: number, radius: number) => {
+    const a = (i / data.length) * Math.PI * 2 - Math.PI / 2;
+    const v = scaledBy === 'gap' ? usableValue(z) : z.count;
+    const r = max > 0 ? (v / max) * radius : 0;
+    return {
+      angle: a,
+      x: CX + Math.cos(a) * r,
+      y: CY + Math.sin(a) * r,
+    };
+  };
+
   return (
-    <div className="rounded-xl bg-gray-900 border border-gray-800 px-6 py-5">
-      <h2 className="text-sm font-semibold text-gray-100 mb-1">DIM Flag Rate by Zone</h2>
-      <p className="text-xs text-gray-500 mb-4">
-        Percentage of shipments flagged as DIM-billed, per pricing zone
-      </p>
-      <ResponsiveContainer width="100%" height={data.length * 44 + 40}>
-        <BarChart
-          data={data}
-          layout="vertical"
-          margin={{ top: 0, right: 48, bottom: 0, left: 8 }}
+    <figure className="border p-4" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
+      <div className="flex items-center justify-between text-[10px] tracking-widest mb-2" style={{ color: 'var(--muted)' }}>
+        <span>{title}</span>
+        <span style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>ACTIVE</span>
+      </div>
+      <div className="relative mx-auto w-full" style={{ aspectRatio: '1 / 1', maxWidth: 440 }}>
+        <svg
+          viewBox="0 0 440 440"
+          preserveAspectRatio="xMidYMid meet"
+          className="absolute inset-0 w-full h-full"
+          role="img"
+          aria-label="Zone radar: recoverable dollars and flag rate by pricing zone"
         >
-          <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
-          <XAxis
-            type="number"
-            domain={[0, 100]}
-            tickFormatter={(v) => `${v}%`}
-            tick={{ fill: '#9CA3AF', fontSize: 11 }}
-            axisLine={{ stroke: '#374151' }}
-            tickLine={false}
-          />
-          <YAxis
-            type="category"
-            dataKey="zone"
-            tick={{ fill: '#9CA3AF', fontSize: 11 }}
-            axisLine={false}
-            tickLine={false}
-            tickFormatter={(v) => `Zone ${v}`}
-            width={56}
-          />
-          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-          <Bar dataKey="dimRate" radius={[0, 4, 4, 0]} maxBarSize={24}>
-            {data.map((entry) => (
-              <Cell
-                key={entry.zone}
-                fill={entry.dimRate > 50 ? '#f87171' : entry.dimRate > 25 ? '#fbbf24' : '#60a5fa'}
+          {/* Concentric rings */}
+          {[0.25, 0.5, 0.75, 1].map((r, i) => (
+            <circle key={i} cx={CX} cy={CY} r={R * r} fill="none" stroke="var(--border)" />
+          ))}
+
+          {/* Spokes */}
+          {data.map((_, i) => {
+            const a = (i / data.length) * Math.PI * 2 - Math.PI / 2;
+            return (
+              <line
+                key={i}
+                x1={CX}
+                y1={CY}
+                x2={CX + Math.cos(a) * R}
+                y2={CY + Math.sin(a) * R}
+                stroke="var(--border)"
               />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
+            );
+          })}
+
+          {/* Data polygon */}
+          <polygon
+            points={data
+              .map((z, i) => {
+                const p = pointFor(z, i, R);
+                return `${p.x},${p.y}`;
+              })
+              .join(' ')}
+            fill="var(--accent)"
+            fillOpacity="0.15"
+            stroke="var(--accent)"
+            strokeWidth="1.5"
+          />
+
+          {/* Vertices + labels */}
+          {data.map((z, i) => {
+            const p = pointFor(z, i, R);
+            const a = p.angle;
+            const lx = CX + Math.cos(a) * (R + 22);
+            const ly = CY + Math.sin(a) * (R + 22);
+            const vx = CX + Math.cos(a) * (R + 38);
+            const vy = CY + Math.sin(a) * (R + 38);
+            return (
+              <g key={z.zone}>
+                <circle cx={p.x} cy={p.y} r="4" fill="var(--accent)" />
+                <text
+                  x={lx}
+                  y={ly}
+                  fontSize="12"
+                  fill="var(--text)"
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontFamily="JetBrains Mono"
+                  fontWeight="600"
+                >
+                  {`Z${z.zone}`}
+                </text>
+                <text
+                  x={vx}
+                  y={vy}
+                  fontSize="10"
+                  fill="var(--accent)"
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontFamily="JetBrains Mono"
+                >
+                  {scaledBy === 'gap' ? fmt$k(Math.max(0, z.gapTotal)) : `${z.count}`}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </figure>
   );
 }

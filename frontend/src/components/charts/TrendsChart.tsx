@@ -21,22 +21,37 @@ interface ChargeTooltipProps {
   label?: string;
 }
 
+function TooltipShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="border px-3 py-2 text-[11px] shadow-none font-jb"
+      style={{
+        background: 'var(--panel)',
+        borderColor: 'var(--border-2)',
+        color: 'var(--text)',
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 function ChargeTooltip({ active, payload, label }: ChargeTooltipProps) {
   if (!active || !payload?.length) return null;
   const actual = payload.find((p) => p.name === 'FedEx Billed')?.value ?? 0;
   const predicted = payload.find((p) => p.name === 'Model Predicted')?.value ?? 0;
   const gap = actual - predicted;
   return (
-    <div className="rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-xs shadow-lg">
-      <p className="font-semibold text-gray-100 mb-1.5">{label}</p>
-      <p className="text-blue-400">FedEx Billed: {formatDollars(actual)}</p>
-      <p className="text-gray-400">Model Predicted: {formatDollars(predicted)}</p>
+    <TooltipShell>
+      <p className="font-semibold mb-1" style={{ color: 'var(--text)' }}>{label}</p>
+      <p style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>BILLED {formatDollars(actual)}</p>
+      <p style={{ color: 'var(--muted)' }}>PRED {formatDollars(predicted)}</p>
       {gap !== 0 && (
-        <p className={`mt-1 font-medium ${gap > 0 ? 'text-rose-400' : 'text-gray-500'}`}>
-          Gap: {gap > 0 ? '+' : '-'}{formatDollars(Math.abs(gap))}
+        <p className="mt-1 font-medium" style={{ color: gap > 0 ? 'var(--crit)' : 'var(--muted)' }}>
+          GAP {gap >= 0 ? '+' : '-'}{formatDollars(Math.abs(gap))}
         </p>
       )}
-    </div>
+    </TooltipShell>
   );
 }
 
@@ -48,143 +63,161 @@ interface DisputeTooltipProps {
 
 function DisputeTooltip({ active, payload, label }: DisputeTooltipProps) {
   if (!active || !payload?.length) return null;
-  const monthly = payload.find((p) => p.name === 'New Disputes')?.value ?? 0;
+  const monthly = payload.find((p) => p.name === 'New')?.value ?? 0;
   const cumulative = payload.find((p) => p.name === 'Cumulative')?.value ?? 0;
   return (
-    <div className="rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-xs shadow-lg">
-      <p className="font-semibold text-gray-100 mb-1.5">{label}</p>
-      <p className="text-rose-400">New Disputes: {monthly}</p>
-      <p className="text-amber-400">Cumulative: {cumulative}</p>
-    </div>
+    <TooltipShell>
+      <p className="font-semibold mb-1" style={{ color: 'var(--text)' }}>{label}</p>
+      <p style={{ color: 'var(--crit)' }}>NEW {monthly}</p>
+      <p style={{ color: 'var(--warn)' }}>CUM {cumulative}</p>
+    </TooltipShell>
+  );
+}
+
+function TrendsPanel({
+  title,
+  headerRight,
+  children,
+}: {
+  title: string;
+  headerRight?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className="border p-4"
+      style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
+    >
+      <div
+        className="flex items-center justify-between text-[10px] tracking-widest mb-3"
+        style={{ color: 'var(--muted)' }}
+      >
+        <span>{title}</span>
+        {headerRight && <span>{headerRight}</span>}
+      </div>
+      {children}
+    </section>
   );
 }
 
 export default function TrendsChart({ data }: TrendsChartProps) {
   const hasData = data.some((d) => d.actual > 0 || d.predicted > 0);
+  const densePoints = data.length > 10;
+  const minWidth = Math.max(600, data.length * 28);
 
   return (
-    <div className="space-y-6">
-      {/* Chart 1: Actual vs Predicted charge line chart */}
-      <div className="rounded-xl bg-gray-900 border border-gray-800 px-6 py-5">
-        <h2 className="text-sm font-semibold text-gray-100 mb-1">
-          Actual vs Predicted Charge Trends
-        </h2>
-        <p className="text-xs text-gray-500 mb-4">
-          FedEx billed vs model prediction per period. Rising gap signals increasing overcharges.
-        </p>
+    <div className="space-y-4">
+      <TrendsPanel title="> FIG.03 · BILLED × PREDICTED / PERIOD" headerRight={`N=${data.length}`}>
         {!hasData ? (
-          <div className="h-[280px] flex items-center justify-center">
-            <p className="text-sm text-gray-500">Upload an invoice to see charge trends</p>
+          <div className="h-[280px] flex items-center justify-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
+            NO SIGNAL — INGEST AN INVOICE
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <div style={{ minWidth: Math.max(600, data.length * 28) }}>
+            <div style={{ minWidth }}>
               <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={data} margin={{ top: 16, right: 16, bottom: data.length > 10 ? 40 : 0, left: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                <LineChart data={data} margin={{ top: 8, right: 16, bottom: densePoints ? 40 : 0, left: 16 }}>
+                  <CartesianGrid strokeDasharray="0" stroke="var(--border)" vertical={false} />
                   <XAxis
                     dataKey="month"
-                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
-                    axisLine={{ stroke: '#374151' }}
+                    tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: 'JetBrains Mono' }}
+                    axisLine={{ stroke: 'var(--border)' }}
                     tickLine={false}
-                    angle={data.length > 10 ? -45 : 0}
-                    textAnchor={data.length > 10 ? 'end' : 'middle'}
-                    height={data.length > 10 ? 60 : 30}
+                    angle={densePoints ? -45 : 0}
+                    textAnchor={densePoints ? 'end' : 'middle'}
+                    height={densePoints ? 60 : 30}
                   />
                   <YAxis
                     tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                    tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: 'JetBrains Mono' }}
                     axisLine={false}
                     tickLine={false}
                   />
-                  <Tooltip content={<ChargeTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.08)' }} />
-                  <Legend wrapperStyle={{ fontSize: '12px', color: '#9CA3AF', paddingTop: '8px' }} />
+                  <Tooltip content={<ChargeTooltip />} cursor={{ stroke: 'var(--border-2)' }} />
+                  <Legend
+                    wrapperStyle={{ fontSize: '10px', color: 'var(--muted)', paddingTop: '8px', letterSpacing: '0.1em', textTransform: 'uppercase' }}
+                  />
                   <Line
                     type="monotone"
                     dataKey="actual"
                     name="FedEx Billed"
-                    stroke="#3b82f6"
+                    stroke="var(--accent)"
                     strokeWidth={2}
-                    dot={{ fill: '#3b82f6', r: 3 }}
-                    activeDot={{ r: 5 }}
+                    dot={{ fill: 'var(--accent)', r: 3, strokeWidth: 0 }}
+                    activeDot={{ r: 5, strokeWidth: 0 }}
                   />
                   <Line
                     type="monotone"
                     dataKey="predicted"
                     name="Model Predicted"
-                    stroke="#6b7280"
-                    strokeWidth={2}
+                    stroke="var(--muted)"
+                    strokeWidth={1.5}
                     strokeDasharray="4 4"
-                    dot={{ fill: '#6b7280', r: 3 }}
-                    activeDot={{ r: 5 }}
+                    dot={{ fill: 'var(--muted)', r: 2.5, strokeWidth: 0 }}
+                    activeDot={{ r: 4, strokeWidth: 0 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
         )}
-      </div>
+      </TrendsPanel>
 
-      {/* Chart 2: Dispute candidate count over time */}
-      <div className="rounded-xl bg-gray-900 border border-gray-800 px-6 py-5">
-        <h2 className="text-sm font-semibold text-gray-100 mb-1">
-          Dispute Candidates Over Time
-        </h2>
-        <p className="text-xs text-gray-500 mb-4">
-          New and cumulative DIM anomaly ("Unexpected") shipments per period. Upward cumulative trend means disputes are accumulating.
-        </p>
+      <TrendsPanel title="> FIG.04 · DISPUTE.COUNT / PERIOD" headerRight={`N=${data.length}`}>
         {!hasData ? (
-          <div className="h-[280px] flex items-center justify-center">
-            <p className="text-sm text-gray-500">Upload an invoice to see dispute trends</p>
+          <div className="h-[280px] flex items-center justify-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
+            NO SIGNAL — INGEST AN INVOICE
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <div style={{ minWidth: Math.max(600, data.length * 28) }}>
+            <div style={{ minWidth }}>
               <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={data} margin={{ top: 16, right: 16, bottom: data.length > 10 ? 40 : 0, left: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                <LineChart data={data} margin={{ top: 8, right: 16, bottom: densePoints ? 40 : 0, left: 16 }}>
+                  <CartesianGrid strokeDasharray="0" stroke="var(--border)" vertical={false} />
                   <XAxis
                     dataKey="month"
-                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
-                    axisLine={{ stroke: '#374151' }}
+                    tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: 'JetBrains Mono' }}
+                    axisLine={{ stroke: 'var(--border)' }}
                     tickLine={false}
-                    angle={data.length > 10 ? -45 : 0}
-                    textAnchor={data.length > 10 ? 'end' : 'middle'}
-                    height={data.length > 10 ? 60 : 30}
+                    angle={densePoints ? -45 : 0}
+                    textAnchor={densePoints ? 'end' : 'middle'}
+                    height={densePoints ? 60 : 30}
                   />
                   <YAxis
                     allowDecimals={false}
-                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                    tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: 'JetBrains Mono' }}
                     axisLine={false}
                     tickLine={false}
                   />
-                  <Tooltip content={<DisputeTooltip />} cursor={{ stroke: 'rgba(255,255,255,0.08)' }} />
-                  <Legend wrapperStyle={{ fontSize: '12px', color: '#9CA3AF', paddingTop: '8px' }} />
+                  <Tooltip content={<DisputeTooltip />} cursor={{ stroke: 'var(--border-2)' }} />
+                  <Legend
+                    wrapperStyle={{ fontSize: '10px', color: 'var(--muted)', paddingTop: '8px', letterSpacing: '0.1em', textTransform: 'uppercase' }}
+                  />
                   <Line
                     type="monotone"
                     dataKey="disputeCount"
-                    name="New Disputes"
-                    stroke="#f43f5e"
+                    name="New"
+                    stroke="var(--crit)"
                     strokeWidth={2}
-                    dot={{ fill: '#f43f5e', r: 3 }}
-                    activeDot={{ r: 5 }}
+                    dot={{ fill: 'var(--crit)', r: 3, strokeWidth: 0 }}
+                    activeDot={{ r: 5, strokeWidth: 0 }}
                   />
                   <Line
                     type="monotone"
                     dataKey="cumulativeDisputes"
                     name="Cumulative"
-                    stroke="#f59e0b"
-                    strokeWidth={2}
+                    stroke="var(--warn)"
+                    strokeWidth={1.5}
                     strokeDasharray="4 4"
-                    dot={{ fill: '#f59e0b', r: 3 }}
-                    activeDot={{ r: 5 }}
+                    dot={{ fill: 'var(--warn)', r: 2.5, strokeWidth: 0 }}
+                    activeDot={{ r: 4, strokeWidth: 0 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </div>
         )}
-      </div>
+      </TrendsPanel>
     </div>
   );
 }

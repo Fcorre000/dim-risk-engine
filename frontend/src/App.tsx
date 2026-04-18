@@ -9,6 +9,7 @@ import ByZonePage from './pages/ByZonePage';
 import ByStatePage from './pages/ByStatePage';
 import TrendsPage from './pages/TrendsPage';
 import ExportPage from './pages/ExportPage';
+import { ThemeProvider } from './theme/ThemeContext';
 
 const INITIAL_UPLOAD_STATE: UploadState = {
   status: 'idle',
@@ -262,31 +263,27 @@ export default function App() {
   };
 
   return (
-    <>
+    <ThemeProvider>
       {serverStatus === 'warming' && (
         <div
           role="status"
           aria-live="polite"
-          className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2.5 bg-amber-950/95 border-b border-amber-800/50 px-4 py-2.5 backdrop-blur-sm"
+          className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2.5 px-4 py-2 border-b text-[10px] tracking-widest uppercase"
+          style={{
+            background: 'var(--panel)',
+            borderColor: 'var(--warn)',
+            color: 'var(--warn)',
+          }}
         >
-          <svg
-            className="w-3.5 h-3.5 animate-spin shrink-0 text-amber-400"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <p className="text-xs text-amber-300">
-            Server warming up after inactivity — this can take up to 60 seconds. The demo will start automatically once ready.
+          <span aria-hidden="true">◐</span>
+          <p>
+            SERVER.WARMING · AWAIT ~60s · DEMO WILL AUTOSTART
           </p>
         </div>
       )}
-      <MainLayout activePage={activePage} onNavigate={setActivePage}>
+      <MainLayout activePage={activePage} onNavigate={setActivePage} uploadState={uploadState}>
         {renderPage()}
       </MainLayout>
-    </>
+    </ThemeProvider>
   );
 }

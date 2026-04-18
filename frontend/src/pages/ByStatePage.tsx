@@ -6,6 +6,8 @@ import {
 } from 'react-simple-maps';
 import type { UploadState } from '../types/api';
 import { computeStateData, formatDollars } from '../lib/metrics';
+import { useTheme } from '../theme/ThemeContext';
+import { getPalette } from '../theme/variants';
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json';
 
@@ -25,13 +27,18 @@ const NAME_TO_ABBR: Record<string, string> = {
   'Wisconsin': 'WI', 'Wyoming': 'WY', 'District of Columbia': 'DC',
 };
 
-function getStateColor(count: number, maxCount: number): string {
-  if (count === 0 || maxCount === 0) return '#1f2937';
-  const t = Math.min(count / maxCount, 1);
-  // Interpolate RGB: #1e3a5f (low) → #3b82f6 (high)
-  const r = Math.round(30 + t * (59 - 30));
-  const g = Math.round(58 + t * (130 - 58));
-  const b = Math.round(95 + t * (246 - 95));
+function hexToRgb(hex: string): [number, number, number] {
+  const s = hex.replace('#', '');
+  const n = s.length === 3
+    ? s.split('').map((c) => parseInt(c + c, 16))
+    : [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
+  return [n[0], n[1], n[2]];
+}
+
+function mixColors(lo: [number, number, number], hi: [number, number, number], t: number): string {
+  const r = Math.round(lo[0] + t * (hi[0] - lo[0]));
+  const g = Math.round(lo[1] + t * (hi[1] - lo[1]));
+  const b = Math.round(lo[2] + t * (hi[2] - lo[2]));
   return `rgb(${r}, ${g}, ${b})`;
 }
 
@@ -50,6 +57,12 @@ interface ByStatePageProps {
 
 export default function ByStatePage({ uploadState }: ByStatePageProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+  const { variant, theme } = useTheme();
+  const palette = getPalette(variant, theme);
+
+  const panelCol = hexToRgb(palette['--panel']);
+  const accentCol = hexToRgb(palette['--accent']);
+  const borderCol = palette['--border-2'];
 
   const results = uploadState.results ?? [];
   const stateData = useMemo(() => computeStateData(results), [results]);
@@ -63,157 +76,202 @@ export default function ByStatePage({ uploadState }: ByStatePageProps) {
   const maxCount = stateData.length > 0 ? stateData[0].count : 0;
   const totalMapped = stateData.reduce((s, d) => s + d.count, 0);
 
+  function colorFor(count: number): string {
+    if (count === 0 || maxCount === 0) return palette['--bg'];
+    const t = Math.min(count / maxCount, 1);
+    return mixColors(panelCol, accentCol, 0.2 + t * 0.8);
+  }
+
   if (results.length === 0) {
     return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-100">By State</h1>
-          <p className="text-gray-500 text-sm mt-1">Shipment distribution across US states</p>
-        </div>
-        <div className="rounded-xl bg-gray-900 border border-gray-800 px-6 py-16 flex items-center justify-center">
-          <p className="text-sm text-gray-500">Upload an invoice on the Overview page to see state analysis</p>
-        </div>
+      <div className="space-y-4">
+        <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
+          &gt; 03 BY.STATE · SHIP.DENSITY.US
+        </h1>
+        <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
+          <div className="p-10 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
+            NO SIGNAL — INGEST AN INVOICE ON 00 OVERVIEW
+          </div>
+        </section>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-100">By State</h1>
-        <p className="text-gray-500 text-sm mt-1">
-          {totalMapped.toLocaleString()} shipments mapped across {stateData.length} states
+    <div className="space-y-4">
+      {/* Page title */}
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
+          &gt; 03 BY.STATE · SHIP.DENSITY.US
+        </h1>
+        <p className="text-[10px] tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
+          N.MAPPED {totalMapped.toLocaleString()} · N.STATES {stateData.length}
         </p>
       </div>
 
-      {/* Map */}
-      <div className="rounded-xl bg-gray-900 border border-gray-800 px-6 py-5 relative">
-        <h2 className="text-sm font-semibold text-gray-100 mb-1">Shipment Volume by State</h2>
-        <p className="text-xs text-gray-500 mb-4">Hover over a state to see details</p>
-
-        <ComposableMap
-          projection="geoAlbersUsa"
-          projectionConfig={{ scale: 1000 }}
-          width={800}
-          height={500}
-          style={{ width: '100%', height: 'auto' }}
+      {/* Map panel */}
+      <section className="border relative" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
+        <div
+          className="px-4 py-2 border-b flex items-center justify-between text-[10px] tracking-widest"
+          style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
         >
-          <Geographies geography={GEO_URL}>
-            {({ geographies }) =>
-              geographies.map((geo) => {
-                const stateName = geo.properties.name;
-                const abbr = NAME_TO_ABBR[stateName];
-                const data = abbr ? stateMap[abbr] : undefined;
-                const count = data?.count ?? 0;
-
-                return (
-                  <Geography
-                    key={geo.rsmKey}
-                    geography={geo}
-                    fill={getStateColor(count, maxCount)}
-                    stroke="#374151"
-                    strokeWidth={0.5}
-                    onMouseEnter={() => {
-                      if (abbr) {
-                        setTooltip({
-                          name: stateName,
-                          abbr,
-                          count,
-                          actualTotal: data?.actualTotal ?? 0,
-                          gapTotal: data?.gapTotal ?? 0,
-                          unexpected: data?.unexpected ?? 0,
-                        });
-                      }
-                    }}
-                    onMouseLeave={() => setTooltip(null)}
-                    style={{
-                      default: { outline: 'none' },
-                      hover: { fill: '#60a5fa', outline: 'none', cursor: 'pointer' },
-                      pressed: { outline: 'none' },
-                    }}
-                  />
-                );
-              })
-            }
-          </Geographies>
-        </ComposableMap>
-
-        {/* Tooltip */}
-        {tooltip && (
-          <div className="absolute top-16 right-8 rounded-lg bg-gray-800 border border-gray-700 px-4 py-3 text-xs shadow-lg z-10 min-w-[180px]">
-            <p className="font-semibold text-gray-100 mb-2">{tooltip.name} ({tooltip.abbr})</p>
-            <div className="space-y-1">
-              <p className="text-gray-400">Shipments: <span className="text-gray-200 font-medium">{tooltip.count.toLocaleString()}</span></p>
-              <p className="text-gray-400">Total Billed: <span className="text-blue-400">{formatDollars(tooltip.actualTotal)}</span></p>
-              <p className="text-gray-400">
-                Gap: <span className={tooltip.gapTotal > 0 ? 'text-rose-400 font-medium' : 'text-emerald-400'}>
-                  {tooltip.gapTotal >= 0 ? '+' : ''}{formatDollars(tooltip.gapTotal)}
-                </span>
-              </p>
-              {tooltip.unexpected > 0 && (
-                <p className="text-rose-400">Anomalies: {tooltip.unexpected}</p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Legend */}
-        <div className="flex items-center gap-2 mt-2 px-2">
-          <span className="text-xs text-gray-500">Low</span>
-          <div className="h-2 flex-1 rounded" style={{
-            background: 'linear-gradient(to right, #1e3a5f, #3b82f6)'
-          }} />
-          <span className="text-xs text-gray-500">High</span>
-          <span className="text-xs text-gray-600 ml-2">({maxCount.toLocaleString()} max)</span>
+          <span>&gt; FIG.05 · CHOROPLETH · SHIPMENTS/STATE</span>
+          <span>HOVER FOR DETAIL</span>
         </div>
-      </div>
+
+        <div className="p-4">
+          <ComposableMap
+            projection="geoAlbersUsa"
+            projectionConfig={{ scale: 1000 }}
+            width={800}
+            height={500}
+            style={{ width: '100%', height: 'auto' }}
+          >
+            <Geographies geography={GEO_URL}>
+              {({ geographies }) =>
+                geographies.map((geo) => {
+                  const stateName = geo.properties.name;
+                  const abbr = NAME_TO_ABBR[stateName];
+                  const data = abbr ? stateMap[abbr] : undefined;
+                  const count = data?.count ?? 0;
+
+                  return (
+                    <Geography
+                      key={geo.rsmKey}
+                      geography={geo}
+                      fill={colorFor(count)}
+                      stroke={borderCol}
+                      strokeWidth={0.5}
+                      onMouseEnter={() => {
+                        if (abbr) {
+                          setTooltip({
+                            name: stateName,
+                            abbr,
+                            count,
+                            actualTotal: data?.actualTotal ?? 0,
+                            gapTotal: data?.gapTotal ?? 0,
+                            unexpected: data?.unexpected ?? 0,
+                          });
+                        }
+                      }}
+                      onMouseLeave={() => setTooltip(null)}
+                      style={{
+                        default: { outline: 'none' },
+                        hover: { fill: palette['--accent'], outline: 'none', cursor: 'pointer' },
+                        pressed: { outline: 'none' },
+                      }}
+                    />
+                  );
+                })
+              }
+            </Geographies>
+          </ComposableMap>
+
+          {/* Tooltip */}
+          {tooltip && (
+            <div
+              className="absolute top-16 right-8 border px-3 py-2 text-[11px] z-10 min-w-[200px]"
+              style={{ borderColor: 'var(--border-2)', background: 'var(--panel)', color: 'var(--text)' }}
+            >
+              <p className="text-[10px] tracking-widest mb-2" style={{ color: 'var(--muted)' }}>
+                &gt; STATE {tooltip.abbr} · {tooltip.name.toUpperCase()}
+              </p>
+              <div className="space-y-1 tabular-nums">
+                <p style={{ color: 'var(--muted)' }}>
+                  SHIPMENTS <span className="ml-2" style={{ color: 'var(--text)' }}>{tooltip.count.toLocaleString()}</span>
+                </p>
+                <p style={{ color: 'var(--muted)' }}>
+                  ACT.SUM <span className="ml-2" style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>
+                    {formatDollars(tooltip.actualTotal)}
+                  </span>
+                </p>
+                <p style={{ color: 'var(--muted)' }}>
+                  GAP{' '}
+                  <span
+                    className="ml-2"
+                    style={{ color: tooltip.gapTotal > 0 ? 'var(--crit)' : 'var(--accent)' }}
+                  >
+                    {tooltip.gapTotal >= 0 ? '+' : ''}{formatDollars(tooltip.gapTotal)}
+                  </span>
+                </p>
+                {tooltip.unexpected > 0 && (
+                  <p style={{ color: 'var(--crit)' }}>▲ UNEXPECTED {tooltip.unexpected}</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Legend */}
+          <div className="flex items-center gap-2 mt-3 text-[9px] tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
+            <span>LOW</span>
+            <div
+              className="h-2 flex-1"
+              style={{
+                background: `linear-gradient(to right, ${mixColors(panelCol, accentCol, 0.2)}, ${palette['--accent']})`,
+              }}
+            />
+            <span>HIGH</span>
+            <span className="ml-2 opacity-70">· MAX {maxCount.toLocaleString()}</span>
+          </div>
+        </div>
+      </section>
 
       {/* Summary table */}
-      <div className="rounded-xl bg-gray-900 border border-gray-800">
-        <div className="px-6 py-4 border-b border-gray-800">
-          <h2 className="text-sm font-semibold text-gray-100">Top States by Shipment Volume</h2>
+      <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
+        <div
+          className="px-4 py-2 border-b flex items-center justify-between text-[10px] tracking-widest"
+          style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
+        >
+          <span>&gt; TBL.03 · STATE_SUMMARY</span>
+          <span>ORDER.BY count DESC</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm" role="table" aria-label="State shipment summary">
+          <table className="w-full text-[11.5px] font-jb" role="table" aria-label="State shipment summary">
             <thead>
-              <tr className="border-b border-gray-800">
-                {['State', 'Shipments', 'Total Actual', 'Total Predicted', 'Gap', 'Anomalies'].map((col) => (
-                  <th key={col} scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    {col}
-                  </th>
-                ))}
+              <tr className="border-b text-[9px] tracking-widest" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
+                <th scope="col" className="px-4 py-2 text-left">STATE</th>
+                <th scope="col" className="px-4 py-2 text-right">N</th>
+                <th scope="col" className="px-4 py-2 text-right">ACT.SUM</th>
+                <th scope="col" className="px-4 py-2 text-right">PRED.SUM</th>
+                <th scope="col" className="px-4 py-2 text-right">GAP</th>
+                <th scope="col" className="px-4 py-2 text-right">UNEXPECTED</th>
               </tr>
             </thead>
             <tbody>
-              {stateData.map((d, idx) => (
+              {stateData.map((d) => (
                 <tr
                   key={d.state}
-                  className={[
-                    'border-b border-gray-800/60 transition-colors duration-75',
-                    idx % 2 === 0 ? 'bg-transparent' : 'bg-gray-800/20',
-                    'hover:bg-gray-800/50',
-                  ].join(' ')}
+                  className="border-b transition-colors duration-150"
+                  style={{ borderColor: 'var(--border)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--row-hov)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                 >
-                  <td className="px-4 py-3 text-gray-200 font-medium whitespace-nowrap">{d.state}</td>
-                  <td className="px-4 py-3 text-gray-300 tabular-nums">{d.count.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-gray-300 tabular-nums">{formatDollars(d.actualTotal)}</td>
-                  <td className="px-4 py-3 text-gray-400 tabular-nums">{formatDollars(d.predictedTotal)}</td>
-                  <td className={`px-4 py-3 tabular-nums font-medium ${d.gapTotal > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  <td className="px-4 py-1.5 tabular-nums">{d.state}</td>
+                  <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
+                    {d.count.toLocaleString()}
+                  </td>
+                  <td className="px-4 py-1.5 tabular-nums text-right">{formatDollars(d.actualTotal)}</td>
+                  <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
+                    {formatDollars(d.predictedTotal)}
+                  </td>
+                  <td
+                    className="px-4 py-1.5 tabular-nums text-right"
+                    style={{ color: d.gapTotal > 0 ? 'var(--crit)' : d.gapTotal < 0 ? 'var(--accent)' : 'var(--muted)' }}
+                  >
                     {d.gapTotal >= 0 ? '+' : ''}{formatDollars(d.gapTotal)}
                   </td>
-                  <td className="px-4 py-3 text-gray-400 tabular-nums">
-                    {d.unexpected > 0 ? (
-                      <span className="text-rose-400">{d.unexpected}</span>
-                    ) : (
-                      '0'
-                    )}
+                  <td
+                    className="px-4 py-1.5 tabular-nums text-right"
+                    style={{ color: d.unexpected > 0 ? 'var(--crit)' : 'var(--muted)' }}
+                  >
+                    {d.unexpected}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

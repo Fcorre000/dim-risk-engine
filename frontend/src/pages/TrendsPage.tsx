@@ -16,51 +16,54 @@ export default function TrendsPage({ uploadState }: TrendsPageProps) {
   );
 
   const totalDisputes = trendsData[trendsData.length - 1]?.cumulativeDisputes ?? 0;
-  const periodLabel = granularity === 'day' ? 'Daily' : 'Weekly';
 
   if (results.length === 0) {
     return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-100">Trends</h1>
-          <p className="text-gray-500 text-sm mt-1">Charge trends and dispute candidate history</p>
-        </div>
-        <div className="rounded-xl bg-gray-900 border border-gray-800 px-6 py-16 flex items-center justify-center">
-          <p className="text-sm text-gray-500">Upload an invoice on the Overview page to see trends</p>
-        </div>
+      <div className="space-y-4">
+        <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
+          &gt; 04 TRENDS · CHARGE × DISPUTE / PERIOD
+        </h1>
+        <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
+          <div className="p-10 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
+            NO SIGNAL — INGEST AN INVOICE ON 00 OVERVIEW
+          </div>
+        </section>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* Page title + granularity toggle */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-100">Trends</h1>
-          <p className="text-gray-500 text-sm mt-1">
-            {periodLabel} charge trends across {results.length.toLocaleString()} shipments
+          <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
+            &gt; 04 TRENDS · CHARGE × DISPUTE / PERIOD
+          </h1>
+          <p className="text-[10px] tracking-widest uppercase mt-1" style={{ color: 'var(--muted)' }}>
+            N.SHIPMENTS {results.length.toLocaleString()} · GRAIN {granularity.toUpperCase()}
             {totalDisputes > 0 && (
-              <span className="ml-2 text-rose-400 font-medium">
-                {totalDisputes} total dispute candidates
+              <span className="ml-2" style={{ color: 'var(--crit)' }}>
+                · DISPUTES {totalDisputes}
               </span>
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <label htmlFor="granularity-toggle" className="text-xs text-gray-500">
-            Group by:
-          </label>
+        <div className="flex items-center gap-2 text-[10px] tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
+          <label htmlFor="granularity-toggle">GROUP.BY</label>
           <select
             id="granularity-toggle"
             value={granularity}
             onChange={(e) => setGranularity(e.target.value as TrendsGranularity)}
-            className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-3 py-1.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 focus:ring-offset-gray-900"
+            className="border px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
+            style={{ background: 'var(--panel)', borderColor: 'var(--border-2)', color: 'var(--text)' }}
           >
-            <option value="day">Day</option>
-            <option value="week">Week</option>
+            <option value="day">DAY</option>
+            <option value="week">WEEK</option>
           </select>
         </div>
       </div>
+
       <TrendsChart data={trendsData} />
     </div>
   );

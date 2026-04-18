@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { UploadState } from '../types/api';
-import { computeKpis, computeZoneData, formatDollars } from '../lib/metrics';
+import { computeKpis, computeZoneDetails, formatDollars } from '../lib/metrics';
 import UploadZone from '../components/upload/UploadZone';
 import UploadStatusCard from '../components/upload/UploadStatusCard';
 import KpiCard from '../components/kpi/KpiCard';
@@ -14,80 +14,96 @@ interface OverviewPageProps {
   onDemoLoad: () => Promise<void>;
 }
 
+function fmt$short(n: number): string {
+  if (n >= 1000) return '$' + Math.round(n).toLocaleString('en-US');
+  return formatDollars(n);
+}
+
 export default function OverviewPage({ uploadState, onUpload, onDemoLoad }: OverviewPageProps) {
   const results = uploadState.results ?? [];
-  // Memoize expensive O(n) computations so they only rerun when results
-  // array changes (every 500 rows), not on every 50-row KPI update
   const computedKpis = useMemo(() => computeKpis(results), [results]);
-  const zoneData = useMemo(() => computeZoneData(results), [results]);
+  const zoneDetails = useMemo(() => computeZoneDetails(results), [results]);
 
-  // During streaming, use incremental KPIs (updated every 50 rows, O(1) per update)
-  // instead of recomputing from the full results array which causes O(n²) total work.
   const sk = uploadState.streamingKpis;
   const shipmentCount = uploadState.shipmentCount ?? 0;
-  const kpis = sk ? {
-    totalShipments: shipmentCount,
-    dimFlaggedCount: sk.dimFlaggedCount,
-    dimFlaggedPercent: shipmentCount > 0 ? parseFloat(((sk.dimFlaggedCount / shipmentCount) * 100).toFixed(1)) : 0,
-    disputeCandidates: sk.disputeCandidates,
-    estRecoverable: sk.estRecoverable,
-  } : computedKpis;
+  const kpis = sk
+    ? {
+        totalShipments: shipmentCount,
+        dimFlaggedCount: sk.dimFlaggedCount,
+        dimFlaggedPercent:
+          shipmentCount > 0 ? parseFloat(((sk.dimFlaggedCount / shipmentCount) * 100).toFixed(1)) : 0,
+        disputeCandidates: sk.disputeCandidates,
+        estRecoverable: sk.estRecoverable,
+      }
+    : computedKpis;
 
   const hasData = results.length > 0 || shipmentCount > 0;
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-100">Overview</h1>
-        <p className="text-gray-500 text-sm mt-1">
-          Upload a FedEx invoice to analyze DIM billing anomalies
-        </p>
+    <div className="space-y-4">
+      {/* Page title */}
+      <div className="flex items-baseline justify-between">
+        <div>
+          <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
+            &gt; 00 OVERVIEW · OP.DIM.RECONCILE
+          </h1>
+        </div>
       </div>
 
+      {/* Ingest source + result */}
       <UploadZone uploadState={uploadState} onUpload={onUpload} onDemoLoad={onDemoLoad} />
-
       <UploadStatusCard uploadState={uploadState} />
 
-      {/* KPI cards — 4 columns on lg, 2 on sm, 1 on mobile */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI strip */}
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard
-          title="Total Shipments"
+          title="N.SHIPMENTS"
           value={hasData ? kpis.totalShipments.toLocaleString() : '—'}
-          subtitle={hasData ? 'from uploaded invoice' : 'Upload an invoice'}
+          subtitle={hasData ? 'INGESTED' : 'AWAIT.INGEST'}
+          accent="default"
+          registerIndex={0}
         />
         <KpiCard
-          title="DIM-Flagged"
+          title="DIM.FLAGGED"
           value={hasData ? kpis.dimFlaggedCount.toLocaleString() : '—'}
-          subtitle={hasData ? `${kpis.dimFlaggedPercent}% of shipments` : 'Upload an invoice'}
-          accent={hasData && kpis.dimFlaggedPercent > 30 ? 'amber' : 'default'}
+          subtitle={hasData ? `${kpis.dimFlaggedPercent}% OF N` : 'AWAIT.INGEST'}
+          accent={hasData && kpis.dimFlaggedPercent > 0 ? 'warn' : 'default'}
+          registerIndex={1}
         />
         <KpiCard
-          title="Dispute Candidates"
+          title="DISPUTE.Q"
           value={hasData ? kpis.disputeCandidates.toLocaleString() : '—'}
-          subtitle={hasData ? 'DIM anomaly: Unexpected' : 'Upload an invoice'}
-          accent={hasData && kpis.disputeCandidates > 0 ? 'rose' : 'default'}
+          subtitle={hasData ? 'CLS DISAGREES' : 'AWAIT.INGEST'}
+          accent={hasData && kpis.disputeCandidates > 0 ? 'crit' : 'default'}
+          registerIndex={2}
         />
         <KpiCard
-          title="Recoverable"
-          value={hasData ? formatDollars(kpis.estRecoverable) : '—'}
+          title="RECOVER.USD"
+          value={hasData ? fmt$short(kpis.estRecoverable) : '—'}
           subtitle={
             uploadState.status === 'uploading'
-              ? 'Final value shown after processing completes'
+              ? 'STREAM · FINAL ON COMPLETE'
               : hasData
-              ? 'actual − predicted for Unexpected rows'
-              : 'Upload an invoice'
+              ? 'ACT − PRED.HIGH'
+              : 'AWAIT.INGEST'
           }
-          accent={hasData && kpis.estRecoverable > 0 ? 'emerald' : 'default'}
+          accent={hasData && kpis.estRecoverable > 0 ? 'accent' : 'default'}
+          registerIndex={3}
         />
+      </section>
+
+      {/* Charts row — 7/5 split per spec */}
+      <div className="grid grid-cols-12 gap-4">
+        <div className="col-span-12 lg:col-span-7 min-w-0">
+          <ZoneChart data={zoneDetails} />
+        </div>
+        <div className="col-span-12 lg:col-span-5 min-w-0">
+          <ActualVsPredictedChart data={results} />
+        </div>
       </div>
 
-      {/* Charts row — 2 columns on lg, stacked on mobile */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ZoneChart data={zoneData} />
-        <ActualVsPredictedChart data={results} />
-      </div>
-
-      <AnomalyTable results={results} />
+      {/* Peek table */}
+      <AnomalyTable results={results} pageSize={7} title="> TBL.01 · DISPUTE_QUEUE.PEEK" />
     </div>
   );
 }

@@ -1,117 +1,100 @@
-import type { PageId } from '../../types/api';
+import type { PageId, UploadState } from '../../types/api';
 
 interface NavItem {
   id: PageId;
   label: string;
-  icon: React.ReactNode;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  {
-    id: 'overview',
-    label: 'Overview',
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-      </svg>
-    ),
-  },
-  {
-    id: 'anomalies',
-    label: 'Anomalies',
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'by-zone',
-    label: 'By Zone',
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-      </svg>
-    ),
-  },
-  {
-    id: 'by-state',
-    label: 'By State',
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'trends',
-    label: 'Trends',
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-      </svg>
-    ),
-  },
-  {
-    id: 'export',
-    label: 'Export',
-    icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-      </svg>
-    ),
-  },
+  { id: 'overview',  label: 'Overview' },
+  { id: 'anomalies', label: 'Anomalies' },
+  { id: 'by-zone',   label: 'By Zone' },
+  { id: 'by-state',  label: 'By State' },
+  { id: 'trends',    label: 'Trends' },
+  { id: 'export',    label: 'Export' },
 ];
 
 interface SidebarProps {
   activePage: PageId;
   onNavigate: (page: PageId) => void;
+  uploadState: UploadState;
 }
 
-export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
+function KVRow({ k, v }: { k: string; v: string }) {
   return (
-    <nav
-      aria-label="Main navigation"
-      className="flex flex-col w-56 min-h-screen bg-gray-900 border-r border-gray-800 px-3 py-6 flex-shrink-0"
-    >
-      {/* Logo / App title */}
-      <div className="flex items-center gap-2 px-3 mb-8">
-        <div className="w-7 h-7 rounded bg-blue-600 flex items-center justify-center flex-shrink-0">
-          <span className="text-white text-xs font-bold">DR</span>
-        </div>
-        <span className="text-white font-semibold text-sm tracking-wide">DimRisk</span>
-      </div>
+    <div className="flex justify-between gap-2">
+      <span style={{ color: 'var(--muted)' }}>{k}</span>
+      <span className="tabular-nums" style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>{v}</span>
+    </div>
+  );
+}
 
-      {/* Nav items */}
-      <ul className="space-y-1 flex-1">
-        {NAV_ITEMS.map((item) => {
-          const isActive = activePage === item.id;
+function fmtInt(n: number | null | undefined): string {
+  if (n == null) return '—';
+  return n.toLocaleString('en-US');
+}
+
+export default function Sidebar({ activePage, onNavigate, uploadState }: SidebarProps) {
+  const sk = uploadState.streamingKpis;
+  const shipmentCount = uploadState.shipmentCount ?? 0;
+
+  // Derive live ingest values — prefer streaming KPIs mid-upload, final counts otherwise
+  const rows = shipmentCount;
+  const flagged = sk?.dimFlaggedCount ?? (uploadState.results?.filter(r => r.dim_flag_probability > 0.5).length ?? 0);
+  const dispute = sk?.disputeCandidates ?? (uploadState.results?.filter(r => r.dim_anomaly === 'Unexpected').length ?? 0);
+
+  return (
+    <aside
+      aria-label="Main navigation"
+      className="w-52 border-r p-3 shrink-0 font-jb"
+      style={{ borderColor: 'var(--border)', background: 'var(--bg)', minHeight: 'calc(100vh - 36px)' }}
+    >
+      {/* Channels / nav */}
+      <div className="text-[9px] tracking-[0.3em] mb-3" style={{ color: 'var(--muted)' }}>&gt; CHANNELS</div>
+      <ul className="space-y-0.5">
+        {NAV_ITEMS.map((item, i) => {
+          const on = activePage === item.id;
           return (
             <li key={item.id}>
               <button
+                type="button"
                 onClick={() => onNavigate(item.id)}
-                aria-current={isActive ? 'page' : undefined}
-                className={[
-                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150 cursor-pointer',
-                  'min-h-[44px]',
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-400 hover:bg-gray-800 hover:text-gray-100',
-                ].join(' ')}
+                aria-current={on ? 'page' : undefined}
+                className="w-full text-left text-[12px] py-1.5 px-2 flex items-center gap-3 border-l-2 transition-colors duration-150 cursor-pointer"
+                style={{
+                  borderColor: on ? 'var(--accent)' : 'transparent',
+                  background: on ? 'var(--row-hov)' : 'transparent',
+                  color: on ? 'var(--accent)' : 'var(--text)',
+                  textShadow: on ? 'var(--glow)' : 'none',
+                  opacity: on ? 1 : 0.75,
+                }}
               >
-                {item.icon}
-                {item.label}
+                <span className="tabular-nums" style={{ color: on ? 'var(--accent)' : 'var(--muted)' }}>
+                  {String(i).padStart(2, '0')}
+                </span>
+                <span className="uppercase tracking-wider">{item.label}</span>
               </button>
             </li>
           );
         })}
       </ul>
 
-      {/* Footer version */}
-      <div className="px-3 mt-4">
-        <p className="text-xs text-gray-600">v1.0 · DimRisk Engine</p>
+      {/* Model */}
+      <div className="mt-8 text-[9px] tracking-[0.3em] mb-3" style={{ color: 'var(--muted)' }}>&gt; MODEL</div>
+      <div className="space-y-1 text-[10px]">
+        <KVRow k="cls.auc"   v="0.997" />
+        <KVRow k="reg.r2"    v="0.866" />
+        <KVRow k="reg.mae"   v="$3.88" />
+        <KVRow k="n.predict" v={fmtInt(rows)} />
       </div>
-    </nav>
+
+      {/* Ingest */}
+      <div className="mt-8 text-[9px] tracking-[0.3em] mb-3" style={{ color: 'var(--muted)' }}>&gt; INGEST</div>
+      <div className="space-y-1 text-[10px]">
+        <KVRow k="rows"    v={fmtInt(rows)} />
+        <KVRow k="flagged" v={fmtInt(flagged)} />
+        <KVRow k="dispute" v={fmtInt(dispute)} />
+      </div>
+    </aside>
   );
 }

@@ -18,7 +18,7 @@ export default function UploadZone({ uploadState, onUpload, onDemoLoad }: Upload
       if (ext !== 'xlsx' && ext !== 'csv') return;
       await onUpload(file);
     },
-    [onUpload]
+    [onUpload],
   );
 
   const handleDrop = useCallback(
@@ -29,7 +29,7 @@ export default function UploadZone({ uploadState, onUpload, onDemoLoad }: Upload
       const file = e.dataTransfer.files[0];
       if (file) handleFile(file);
     },
-    [isUploading, handleFile]
+    [isUploading, handleFile],
   );
 
   const handleDragOver = useCallback(
@@ -37,12 +37,10 @@ export default function UploadZone({ uploadState, onUpload, onDemoLoad }: Upload
       e.preventDefault();
       if (!isUploading) setIsDragOver(true);
     },
-    [isUploading]
+    [isUploading],
   );
 
-  const handleDragLeave = useCallback(() => {
-    setIsDragOver(false);
-  }, []);
+  const handleDragLeave = useCallback(() => setIsDragOver(false), []);
 
   const handleClick = useCallback(() => {
     if (!isUploading) inputRef.current?.click();
@@ -54,148 +52,155 @@ export default function UploadZone({ uploadState, onUpload, onDemoLoad }: Upload
       if (file) handleFile(file);
       e.target.value = '';
     },
-    [handleFile]
+    [handleFile],
   );
 
   const handleDemoClick = useCallback(
     (e: React.MouseEvent) => {
-      e.stopPropagation(); // don't trigger drop-zone click
+      e.stopPropagation();
       if (!isUploading) onDemoLoad();
     },
-    [isUploading, onDemoLoad]
+    [isUploading, onDemoLoad],
   );
 
   return (
-    <div className="space-y-3">
+    <section
+      className="border"
+      style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
+    >
       <div
-        role="button"
-        tabIndex={isUploading ? -1 : 0}
-        aria-label="Upload invoice file — drag and drop or click to select"
-        aria-disabled={isUploading}
-        onClick={handleClick}
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') handleClick();
-        }}
-        className={[
-          'relative rounded-xl border-2 border-dashed p-10 text-center transition-colors duration-200',
-          'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950',
-          isUploading
-            ? 'border-gray-700 bg-gray-900 cursor-not-allowed opacity-60'
-            : isDragOver
-            ? 'border-blue-500 bg-blue-950/20'
-            : 'border-gray-700 bg-gray-900 hover:border-gray-500 hover:bg-gray-800/50',
-        ].join(' ')}
+        className="px-4 py-2 border-b flex items-center justify-between text-[10px] tracking-widest"
+        style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
       >
-        {/* Hidden file input */}
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".xlsx,.csv"
-          className="sr-only"
-          onChange={handleInputChange}
-          aria-hidden="true"
-          tabIndex={-1}
-        />
+        <span>&gt; INGEST.SOURCE · DROP OR BROWSE</span>
+        <span>.xlsx · .csv · 50 MB max</span>
+      </div>
 
-        {isUploading ? (
-          <div className="flex flex-col items-center gap-3 w-full px-2">
-            {/* Progress bar */}
-            {(() => {
-              const { totalCount, shipmentCount } = uploadState;
-              const indeterminate = totalCount == null;
-              const pct = indeterminate
-                ? null
-                : shipmentCount != null
+      <div className="p-4 space-y-3">
+        <div
+          role="button"
+          tabIndex={isUploading ? -1 : 0}
+          aria-label="Upload invoice file — drag and drop or click to select"
+          aria-disabled={isUploading}
+          onClick={handleClick}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') handleClick();
+          }}
+          className="relative border border-dashed p-10 text-center transition-colors duration-150 cursor-pointer"
+          style={{
+            borderColor: isDragOver ? 'var(--accent)' : 'var(--border-2)',
+            background: isDragOver ? 'var(--row-hov)' : 'transparent',
+            opacity: isUploading ? 0.7 : 1,
+            cursor: isUploading ? 'not-allowed' : 'pointer',
+          }}
+        >
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".xlsx,.csv"
+            className="sr-only"
+            onChange={handleInputChange}
+            aria-hidden="true"
+            tabIndex={-1}
+          />
+
+          {isUploading ? (
+            <div className="flex flex-col items-center gap-3 w-full">
+              {(() => {
+                const { totalCount, shipmentCount } = uploadState;
+                const indeterminate = totalCount == null;
+                const pct = indeterminate
+                  ? null
+                  : shipmentCount != null
                   ? Math.min(Math.round((shipmentCount / totalCount) * 100), 99)
                   : 0;
 
-              return (
-                <div
-                  role="progressbar"
-                  aria-label="Analyzing invoice"
-                  aria-valuenow={pct ?? undefined}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-busy="true"
-                  className="relative w-full h-1.5 rounded-full bg-gray-800 overflow-hidden"
-                >
+                return (
                   <div
-                    className="absolute inset-y-0 left-0 rounded-full bg-blue-700 overflow-hidden"
-                    style={{
-                      width: indeterminate ? '100%' : `${pct}%`,
-                      transition: 'width 300ms ease-out',
-                    }}
+                    role="progressbar"
+                    aria-label="Analyzing invoice"
+                    aria-valuenow={pct ?? undefined}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-busy="true"
+                    className="relative w-full h-1 overflow-hidden"
+                    style={{ background: 'var(--border)' }}
                   >
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-300/50 to-transparent animate-shimmer" />
+                    <div
+                      className="absolute inset-y-0 left-0 overflow-hidden"
+                      style={{
+                        width: indeterminate ? '100%' : `${pct}%`,
+                        background: 'var(--accent)',
+                        boxShadow: 'var(--glow)',
+                        transition: 'width 300ms ease-out',
+                      }}
+                    >
+                      <div
+                        className="absolute inset-0 animate-shimmer"
+                        style={{
+                          background:
+                            'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.35) 50%, transparent 100%)',
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
-              );
-            })()}
-            <div className="flex items-baseline justify-between w-full">
-              <p className="text-sm text-gray-400">Analyzing invoice…</p>
-              {uploadState.shipmentCount != null && (
-                <p className="text-xs tabular-nums text-blue-400">
-                  {uploadState.totalCount != null
-                    ? `${uploadState.shipmentCount.toLocaleString()} / ${uploadState.totalCount.toLocaleString()} rows`
-                    : `${uploadState.shipmentCount.toLocaleString()} rows`}
+                );
+              })()}
+              <div className="flex items-baseline justify-between w-full text-[11px]">
+                <p className="tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
+                  &gt; DECODING {uploadState.filename ?? 'stream'}
                 </p>
-              )}
+                {uploadState.shipmentCount != null && (
+                  <p className="tabular-nums" style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>
+                    {uploadState.totalCount != null
+                      ? `${uploadState.shipmentCount.toLocaleString()} / ${uploadState.totalCount.toLocaleString()}`
+                      : uploadState.shipmentCount.toLocaleString()}{' '}
+                    ROWS
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-3">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-10 w-10 text-gray-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1}
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-              />
-            </svg>
-            <div>
-              <p className="text-sm font-medium text-gray-300">
-                {isDragOver ? 'Drop to analyze' : 'Drag & drop your invoice'}
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-[11px] tracking-widest uppercase" style={{ color: 'var(--text)' }}>
+              <span className="text-[20px] leading-none opacity-70" style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>⇣</span>
+              <p>{isDragOver ? 'Release to analyze' : 'Drag & drop invoice'}</p>
+              <p className="text-[10px]" style={{ color: 'var(--muted)' }}>
+                OR CLICK · .xlsx · .csv
               </p>
-              <p className="text-xs text-gray-500 mt-1">or click to browse — .xlsx or .csv</p>
             </div>
+          )}
+
+          {uploadState.status === 'error' && uploadState.errorMessage && (
+            <p role="alert" className="mt-4 text-[11px]" style={{ color: 'var(--crit)' }}>
+              ▲ {uploadState.errorMessage}
+            </p>
+          )}
+        </div>
+
+        {!isUploading && (
+          <div className="flex items-center gap-3 text-[10px] tracking-widest" style={{ color: 'var(--muted)' }}>
+            <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+            <span>OR</span>
+            <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
           </div>
         )}
 
-        {/* Error message near the field (SKILL.md error-feedback rule) */}
-        {uploadState.status === 'error' && uploadState.errorMessage && (
-          <p role="alert" className="mt-4 text-sm text-rose-400">
-            {uploadState.errorMessage}
-          </p>
+        {!isUploading && (
+          <button
+            type="button"
+            onClick={handleDemoClick}
+            className="w-full border px-4 py-2 text-[11px] tracking-widest uppercase transition-colors duration-150 cursor-pointer"
+            style={{ borderColor: 'var(--border-2)', background: 'transparent', color: 'var(--text)' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--row-hov)'; e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.textShadow = 'var(--glow)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.textShadow = 'none'; }}
+          >
+            ▶ LOAD 3,000-ROW SAMPLE
+          </button>
         )}
       </div>
-
-      {/* Demo button — shown when idle or after completion */}
-      {!isUploading && (
-        <div className="flex items-center gap-3">
-          <div className="flex-1 h-px bg-gray-800" />
-          <span className="text-xs text-gray-600">or</span>
-          <div className="flex-1 h-px bg-gray-800" />
-        </div>
-      )}
-      {!isUploading && (
-        <button
-          type="button"
-          onClick={handleDemoClick}
-          className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-2.5 text-sm font-medium text-gray-300 hover:border-blue-600 hover:bg-gray-700 hover:text-blue-300 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
-        >
-          Try 3,000-row sample invoice
-        </button>
-      )}
-    </div>
+    </section>
   );
 }

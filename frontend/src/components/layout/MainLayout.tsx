@@ -1,27 +1,31 @@
 import type { ReactNode } from 'react';
-import type { PageId } from '../../types/api';
+import type { PageId, UploadState } from '../../types/api';
 import Sidebar from './Sidebar';
+import OpsHeader from './OpsHeader';
 
 interface MainLayoutProps {
   activePage: PageId;
   onNavigate: (page: PageId) => void;
+  uploadState: UploadState;
   children: ReactNode;
 }
 
-export default function MainLayout({ activePage, onNavigate, children }: MainLayoutProps) {
+export default function MainLayout({ activePage, onNavigate, uploadState, children }: MainLayoutProps) {
   return (
-    <div className="flex min-h-screen bg-gray-950">
-      {/* Sidebar hidden on mobile, shown on lg+ */}
-      <div className="hidden lg:flex">
-        <Sidebar activePage={activePage} onNavigate={onNavigate} />
-      </div>
-
-      {/* Main content area */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {children}
+    <div
+      id="ops-root"
+      className="min-h-screen font-jb"
+      style={{ background: 'var(--bg)', color: 'var(--text)' }}
+    >
+      <OpsHeader />
+      <div className="flex">
+        <div className="hidden lg:flex">
+          <Sidebar activePage={activePage} onNavigate={onNavigate} uploadState={uploadState} />
         </div>
-      </main>
+        <main className="flex-1 p-6 min-w-0">
+          {children}
+        </main>
+      </div>
     </div>
   );
 }

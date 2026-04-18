@@ -2,6 +2,7 @@
 .claude
 .planning
 /model_resources
+/design_handoff_dimrisk_ops
 # dependencies
 frontend/node_modules
 /.pnp

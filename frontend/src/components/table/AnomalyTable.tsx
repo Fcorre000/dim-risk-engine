@@ -7,41 +7,36 @@ type FilterValue = 'all' | 'unexpected' | 'review';
 
 interface AnomalyTableProps {
   results: ShipmentResult[];
+  /** Limit displayed rows. Defaults to 100 — pass undefined for unbounded. */
+  pageSize?: number;
+  /** Overrides the panel title, e.g. `> TBL.01 · DISPUTE_QUEUE.PEEK`. */
+  title?: string;
 }
 
-
-interface FlagBadgeProps {
-  dimAnomaly: ShipmentResult['dim_anomaly'];
-  costAnomaly: ShipmentResult['cost_anomaly'];
-}
-
-interface FlagBadgeExtProps extends FlagBadgeProps {
-  dimConfidence: number | null;
-  costConfidence: string | null;
-}
-
-function FlagBadge({ dimAnomaly, costAnomaly, dimConfidence, costConfidence }: FlagBadgeExtProps) {
-  if (dimAnomaly === 'Unexpected') {
+function FlagCell({ row }: { row: ShipmentResult }) {
+  if (row.dim_anomaly === 'Unexpected') {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30 whitespace-nowrap">
-        Unexpected
-        {dimConfidence != null && (
-          <span className="text-rose-400/70 font-normal">{Math.round(dimConfidence * 100)}%</span>
+      <span className="tabular-nums whitespace-nowrap" style={{ color: 'var(--crit)' }}>
+        ▲ UNEXPECTED
+        {row.dim_confidence != null && (
+          <span className="ml-1 opacity-70">{Math.round(row.dim_confidence * 100)}%</span>
         )}
       </span>
     );
   }
-  if (costAnomaly === 'Review') {
+  if (row.cost_anomaly === 'Review') {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30 whitespace-nowrap">
-        Review
-        {costConfidence && (
-          <span className="text-amber-400/70 font-normal">&middot; {costConfidence}</span>
-        )}
+      <span className="tabular-nums whitespace-nowrap" style={{ color: 'var(--warn)' }}>
+        ■ REVIEW
+        {row.cost_confidence && <span className="ml-1 opacity-70">· {row.cost_confidence}</span>}
       </span>
     );
   }
-  return null;
+  return (
+    <span className="whitespace-nowrap" style={{ color: 'var(--muted)' }}>
+      · OK
+    </span>
+  );
 }
 
 function FlagInfoPopover() {
@@ -50,50 +45,41 @@ function FlagInfoPopover() {
 
   useEffect(() => {
     if (!open) return;
-    function handleClick(e: MouseEvent) {
+    function onClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
   }, [open]);
 
   return (
     <div ref={ref} className="relative inline-flex">
       <button
         type="button"
+        onClick={() => setOpen(v => !v)}
         aria-label="Explain flag types"
-        onClick={() => setOpen((v) => !v)}
-        className="w-5 h-5 rounded-full flex items-center justify-center text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        className="px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
+        style={{ color: 'var(--muted)' }}
       >
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4" aria-hidden="true">
-          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
-        </svg>
+        ? FLAGS
       </button>
-
       {open && (
         <div
           role="tooltip"
-          className="absolute right-0 top-7 z-50 w-72 rounded-xl bg-gray-800 border border-gray-700 shadow-xl p-4 text-xs"
+          className="absolute right-0 top-8 z-50 w-80 border p-3 text-[11px]"
+          style={{ borderColor: 'var(--border-2)', background: 'var(--panel)', color: 'var(--text)' }}
         >
-          <p className="text-gray-300 font-semibold mb-3">Flag types explained</p>
-
+          <p className="text-[10px] tracking-widest mb-3" style={{ color: 'var(--muted)' }}>&gt; FLAG TYPES</p>
           <div className="mb-3">
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-400 ring-1 ring-rose-500/30 mb-1.5">
-              Unexpected 87%
-            </span>
-            <p className="text-gray-400 leading-relaxed">
-              The model predicted FedEx would <em>not</em> apply DIM billing, but they charged DIM anyway.
-              The percentage shows how confident the model is — higher % = stronger dispute case.
+            <p style={{ color: 'var(--crit)' }}>▲ UNEXPECTED 87%</p>
+            <p className="leading-snug mt-1" style={{ color: 'var(--muted)' }}>
+              Model predicted FedEx would <em>not</em> apply DIM billing; they charged DIM anyway. Higher % = stronger dispute.
             </p>
           </div>
-
           <div>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30 mb-1.5">
-              Review &middot; High
-            </span>
-            <p className="text-gray-400 leading-relaxed">
-              The actual charge exceeded the model's 90% prediction interval upper bound.
-              The predicted range shows the expected cost window — charges above it warrant investigation.
+            <p style={{ color: 'var(--warn)' }}>■ REVIEW · HIGH</p>
+            <p className="leading-snug mt-1" style={{ color: 'var(--muted)' }}>
+              Actual charge exceeded the 90% prediction interval upper bound. Investigate above-range charges.
             </p>
           </div>
         </div>
@@ -102,16 +88,16 @@ function FlagInfoPopover() {
   );
 }
 
-const PAGE_SIZE = 100;
+const DEFAULT_PAGE_SIZE = 100;
 
-export default function AnomalyTable({ results }: AnomalyTableProps) {
+export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, title }: AnomalyTableProps) {
   const [filterValue, setFilterValue] = useState<FilterValue>('all');
   // Selection is by row_index — tracking_number can be null/duplicate in real data
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
 
   const flaggedRows = useMemo(
     () => results.filter((r) => r.dim_anomaly !== null || r.cost_anomaly !== null),
-    [results]
+    [results],
   );
 
   const filteredRows = useMemo(() => {
@@ -125,123 +111,132 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
     }
   }, [flaggedRows, filterValue]);
 
-  const displayRows = filteredRows.slice(0, PAGE_SIZE);
+  const displayRows = pageSize == null ? filteredRows : filteredRows.slice(0, pageSize);
 
   const selectedRow = useMemo(
-    () => selectedRowIndex != null ? displayRows.find((r) => r.row_index === selectedRowIndex) ?? null : null,
+    () => (selectedRowIndex != null ? displayRows.find((r) => r.row_index === selectedRowIndex) ?? null : null),
     [selectedRowIndex, displayRows],
   );
 
   if (results.length === 0) {
     return (
-      <div className="rounded-xl bg-gray-900 border border-gray-800 px-6 py-10 flex items-center justify-center">
-        <p className="text-sm text-gray-500">Upload an invoice to see the anomaly table</p>
-      </div>
+      <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
+        <div className="px-4 py-2 border-b text-[10px] tracking-widest flex justify-between" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
+          <span>{title ?? '> TBL.01 · DISPUTE_QUEUE.PEEK'}</span>
+          <span>ORDER.BY dim.conf DESC</span>
+        </div>
+        <div className="p-10 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
+          NO SIGNAL — INGEST AN INVOICE
+        </div>
+      </section>
     );
   }
 
+  const headerTitle = title ?? `> TBL.01 · DISPUTE_QUEUE${pageSize != null ? '.PEEK' : '.ALL'}`;
+
   return (
-    <div className="rounded-xl bg-gray-900 border border-gray-800">
-      {/* Header with filter */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 flex-wrap gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-gray-100">Anomaly Detail</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {filteredRows.length.toLocaleString()} of {flaggedRows.length.toLocaleString()} flagged shipments
-            {flaggedRows.length > PAGE_SIZE && displayRows.length === PAGE_SIZE && (
-              <span className="ml-1 text-gray-600">(showing first {PAGE_SIZE})</span>
+    <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
+      {/* Toolbar */}
+      <div
+        className="px-4 py-2 border-b flex items-center justify-between gap-3 flex-wrap text-[10px] tracking-widest"
+        style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
+      >
+        <span>{headerTitle}</span>
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="hidden sm:inline">
+            {filteredRows.length.toLocaleString()} / {flaggedRows.length.toLocaleString()} FLAGGED
+            {flaggedRows.length > displayRows.length && (
+              <span className="opacity-60 ml-1">· FIRST {displayRows.length}</span>
             )}
-            <span className="ml-2 text-gray-600">Click a row to copy details</span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+          </span>
           <CopyTableButton rows={filteredRows} />
           <FlagInfoPopover />
-          <label htmlFor="anomaly-filter" className="text-xs text-gray-500">
-            Filter:
+          <label htmlFor="anomaly-filter" className="text-[10px] tracking-widest" style={{ color: 'var(--muted)' }}>
+            FILTER
           </label>
           <select
             id="anomaly-filter"
             value={filterValue}
             onChange={(e) => setFilterValue(e.target.value as FilterValue)}
             aria-label="Filter anomalies by type"
-            className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-3 py-1.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 focus:ring-offset-gray-900"
+            className="border px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
+            style={{ background: 'var(--panel)', borderColor: 'var(--border-2)', color: 'var(--text)' }}
           >
-            <option value="all">All</option>
-            <option value="unexpected">Unexpected</option>
-            <option value="review">Review</option>
+            <option value="all">ALL</option>
+            <option value="unexpected">UNEXPECTED</option>
+            <option value="review">REVIEW</option>
           </select>
         </div>
       </div>
 
-      {/* Responsive horizontal scroll for small screens */}
+      {/* Table */}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm" role="table" aria-label="Anomaly detail table">
+        <table className="w-full text-[11.5px] font-jb" role="table" aria-label="Anomaly detail table">
           <thead>
-            <tr className="border-b border-gray-800">
-              {['Tracking #', 'Service', 'Dims', 'Weight', 'Zone', 'Actual $', 'Predicted Range', 'Flag'].map(
-                (col) => (
-                  <th
-                    key={col}
-                    scope="col"
-                    className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap"
-                  >
-                    {col}
-                  </th>
-                )
-              )}
+            <tr className="border-b text-[9px] tracking-widest" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
+              <th className="px-4 py-2 text-left">SHIPMENT_ID</th>
+              <th className="px-4 py-2 text-left">SVC</th>
+              <th className="px-4 py-2 text-left">DIMS</th>
+              <th className="px-4 py-2 text-right">LB</th>
+              <th className="px-4 py-2 text-left">Z</th>
+              <th className="px-4 py-2 text-right">ACT</th>
+              <th className="px-4 py-2 text-right">PRED</th>
+              <th className="px-4 py-2 text-right">RESID</th>
+              <th className="px-4 py-2 text-left">FLAG</th>
             </tr>
           </thead>
           <tbody>
             {displayRows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
-                  No {filterValue === 'all' ? 'flagged' : filterValue} shipments found
+                <td colSpan={9} className="px-4 py-8 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
+                  NO ROWS MATCH FILTER
                 </td>
               </tr>
             ) : (
-              displayRows.map((row, idx) => (
+              displayRows.map((row) => {
+                const on = selectedRowIndex === row.row_index;
+                const resid = row.actual_net_charge - row.predicted_net_charge_high;
+                return (
                   <tr
                     key={row.row_index}
-                    onClick={() => setSelectedRowIndex(
-                      selectedRowIndex === row.row_index ? null : row.row_index
-                    )}
-                    className={[
-                      'border-b border-gray-800/60 transition-colors duration-75 cursor-pointer',
-                      selectedRowIndex === row.row_index
-                        ? 'bg-blue-500/10 ring-1 ring-inset ring-blue-500/30'
-                        : idx % 2 === 0 ? 'bg-transparent' : 'bg-gray-800/20',
-                      'hover:bg-gray-800/50',
-                    ].join(' ')}
+                    onClick={() =>
+                      setSelectedRowIndex(on ? null : row.row_index)
+                    }
+                    className="border-b cursor-pointer transition-colors duration-150"
+                    style={{
+                      borderColor: 'var(--border)',
+                      background: on ? 'var(--row-hov)' : 'transparent',
+                    }}
+                    onMouseEnter={(e) => { if (!on) e.currentTarget.style.background = 'var(--row-hov)'; }}
+                    onMouseLeave={(e) => { if (!on) e.currentTarget.style.background = 'transparent'; }}
                   >
-                    <td className="px-4 py-3 font-mono text-xs text-gray-300 whitespace-nowrap">
-                      {row.tracking_number ?? <span className="text-gray-600 italic">no tracking #</span>}
+                    <td className="px-4 py-1.5 tabular-nums">
+                      {row.tracking_number ?? <span className="italic opacity-60">no tracking #</span>}
                     </td>
-                    <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
-                      {row.service_type}
-                    </td>
-                    <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
+                    <td className="px-4 py-1.5" style={{ color: 'var(--muted)' }}>{row.service_type}</td>
+                    <td className="px-4 py-1.5 tabular-nums" style={{ color: 'var(--muted)' }}>
                       {row.dim_length}×{row.dim_width}×{row.dim_height}
                     </td>
-                    <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
-                      {row.weight_lbs} lbs
+                    <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
+                      {row.weight_lbs}
                     </td>
-                    <td className="px-4 py-3 text-gray-400 whitespace-nowrap">
-                      Zone {row.zone}
+                    <td className="px-4 py-1.5" style={{ color: 'var(--muted)' }}>{row.zone}</td>
+                    <td className="px-4 py-1.5 tabular-nums text-right">{formatDollars(row.actual_net_charge)}</td>
+                    <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
+                      {formatDollars(row.predicted_net_charge_low)}<span className="mx-0.5 opacity-50">–</span>{formatDollars(row.predicted_net_charge_high)}
                     </td>
-                    <td className="px-4 py-3 text-gray-300 font-medium tabular-nums whitespace-nowrap">
-                      {formatDollars(row.actual_net_charge)}
+                    <td
+                      className="px-4 py-1.5 tabular-nums text-right"
+                      style={{ color: resid > 0 ? 'var(--crit)' : resid < 0 ? 'var(--accent)' : 'var(--muted)' }}
+                    >
+                      {resid >= 0 ? '+' : ''}{formatDollars(resid)}
                     </td>
-                    <td className="px-4 py-3 text-gray-400 tabular-nums whitespace-nowrap">
-                      <span>{formatDollars(row.predicted_net_charge_low)}</span>
-                      <span className="text-gray-600 mx-0.5">&ndash;</span>
-                      <span>{formatDollars(row.predicted_net_charge_high)}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <FlagBadge dimAnomaly={row.dim_anomaly} costAnomaly={row.cost_anomaly} dimConfidence={row.dim_confidence} costConfidence={row.cost_confidence} />
+                    <td className="px-4 py-1.5">
+                      <FlagCell row={row} />
                     </td>
                   </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>
@@ -249,36 +244,36 @@ export default function AnomalyTable({ results }: AnomalyTableProps) {
 
       {/* Selected row copy bar */}
       {selectedRow && (
-        <div className="px-6 py-3 border-t border-gray-800 bg-gray-800/40">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <p className="text-xs text-gray-400">
-              Selected: <span className="text-gray-200 font-medium">{selectedRow.tracking_number ?? `row #${selectedRow.row_index}`}</span>
-            </p>
-            <div className="flex items-center gap-2 flex-wrap">
-              <CopyButton text={selectedRow.tracking_number ?? ''} label="Tracking #" />
-              <CopyButton text={formatDollars(selectedRow.actual_net_charge)} label="Actual" />
-              <CopyButton
-                text={`${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}`}
-                label="Predicted Range"
-              />
-              <CopyButton
-                text={`${selectedRow.tracking_number ?? ''}\t${selectedRow.service_type}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal'}`}
-                label="Full Row"
-              />
-              <button
-                type="button"
-                onClick={() => setSelectedRowIndex(null)}
-                className="ml-1 p-1 rounded-md text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors"
-                aria-label="Dismiss"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                </svg>
-              </button>
-            </div>
+        <div
+          className="px-4 py-2 border-t flex items-center justify-between gap-3 flex-wrap text-[11px]"
+          style={{ borderColor: 'var(--border)', background: 'var(--row-hov)' }}
+        >
+          <span style={{ color: 'var(--muted)' }}>
+            SELECTED <span style={{ color: 'var(--text)' }}>{selectedRow.tracking_number ?? `row #${selectedRow.row_index}`}</span>
+          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <CopyButton text={selectedRow.tracking_number ?? ''} label="Tracking #" />
+            <CopyButton text={formatDollars(selectedRow.actual_net_charge)} label="Actual" />
+            <CopyButton
+              text={`${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}`}
+              label="Predicted Range"
+            />
+            <CopyButton
+              text={`${selectedRow.tracking_number ?? ''}\t${selectedRow.service_type}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal'}`}
+              label="Full Row"
+            />
+            <button
+              type="button"
+              onClick={() => setSelectedRowIndex(null)}
+              className="px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
+              style={{ color: 'var(--muted)' }}
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }
