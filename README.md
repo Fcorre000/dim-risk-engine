@@ -79,8 +79,9 @@ The backend streams results as **NDJSON** (newline-delimited JSON) so the fronte
 | **React 18** | UI framework with streaming state management |
 | **TypeScript** | Type-safe component development |
 | **Vite** | Build tooling and dev server |
-| **Tailwind CSS** | Utility-first styling with dark theme |
-| **Recharts** | Data visualization (charts, scatter plots) |
+| **Tailwind CSS** | Utility-first layout; all color tokens driven by CSS custom properties |
+| **Theme system** | `frontend/src/theme/` — 4 skins × dark/light (8 palettes), `localStorage`-persisted |
+| **Recharts** | Trends line chart (scatter and zone radar are hand-rolled SVG) |
 | **react-simple-maps** | US state choropleth map (SVG, TopoJSON) |
 
 ### Infrastructure
@@ -285,6 +286,15 @@ Set `VITE_API_URL` on the frontend service to point to the API URL, and `CORS_OR
 ---
 
 ## Changelog
+
+### 2026-04-18 — Ops-console redesign (4 skins × dark/light)
+- **Full visual overhaul** from the `design_handoff_dimrisk_ops/` handoff spec. Pure skin change — API, streaming pipeline, KPI math, and anomaly logic are unchanged.
+- **Design language:** fixed-width terminal aesthetic — JetBrains Mono for body/mono, Space Grotesk for KPI values, sharp corners (no rounding), slug-style headers (`> TBL.01 · DISPUTE_QUEUE.PEEK`, `> FIG.02 · ACTUAL × PREDICTED`), and typographic marks instead of icons (▲ critical, ■ review, · ok, ◐ warming, ⇣ download).
+- **Skin switcher (4 × 2 = 8 palettes):** new `frontend/src/theme/` module exposes four skins — **Console** (green phosphor on near-black), **Terminal** (Bloomberg-style amber), **Slate** (SRE cyan), **Graphite** (neutral with muted accent) — each with dark and light modes. Picker and dark/light toggle live in the new `OpsHeader`. Selection persists in `localStorage`.
+- **CSS-variable theming:** every color flows through 12 CSS custom properties (`--bg`, `--panel`, `--border`, `--text`, `--accent`, `--warn`, `--crit`, `--muted`, `--row-hov`, `--glow`, …) written onto `document.body`. No hardcoded palette colors anywhere; the choropleth even interpolates its fill scale between `--panel` and `--accent`.
+- **Charts rewritten in pure SVG:** Overview scatter and zone radar dropped Recharts for hand-rolled SVG — palette-aware, lighter runtime, sharper at any resolution. Recharts retained for Trends only.
+- **Null-safe data model:** backend now emits a monotonic `row_index` per shipment; `tracking_number` typed as nullable. Tables, scatter, and CSV export all key on `row_index` (tracking # can be missing or duplicated in real invoice data). Missing tracking renders as an italic "no tracking #" placeholder instead of a blank cell.
+- **AnomaliesPage pagination:** page size selector (50 / 100 / 250 / 500) and ops-styled pager buttons — prevents sort lag on 10k+ row invoices.
 
 ### 2026-04-14 — Fix inference feature mismatch (cm→inches + time offset)
 - **Critical bug fix:** `build_feature_matrix()` was computing volume and DIM weight features using raw centimeter values, but the training pipeline converts to inches first (÷ 2.54). This inflated volume by 16.4× and caused systematic ~30% overprediction across all shipments with non-zero dimensions. Fixed by adding the same cm→inches conversion used during training.

@@ -181,6 +181,36 @@ candidates.
   map-pin icon
 - Old `BySkuPage.tsx` deleted; `computeSkuData()` in metrics.ts kept (harmless)
 
+## Ops-console redesign (2026-04-18)
+- Full visual overhaul from the `design_handoff_dimrisk_ops/` spec. **All business logic preserved** — same API, streaming, KPI math, types. Only the skin changed.
+- **Design language:** fixed-width terminal aesthetic. JetBrains Mono for body/mono, Space Grotesk for KPI values. Sharp corners everywhere (no `border-radius`). Typographic marks instead of icons: ▲ (crit), ■ (warn), · (ok), ◐ (warming), ⇣ (download). Slug-style headers like `> TBL.01 · DISPUTE_QUEUE.PEEK` and `> FIG.02 · ACTUAL × PREDICTED`.
+- **Never use Tailwind color utilities** (`text-red-500`, `bg-gray-800`, etc.) in new components — every color comes from CSS custom properties so themes apply automatically.
+
+### Theming system (4 skins × 2 modes = 8 palettes)
+- `frontend/src/theme/variants.ts` defines `VARIANTS` — four skins (`console`, `bloomberg` aka "Terminal", `slate`, `stripe` aka "Graphite") each with `dark` and `light` palettes. Palette keys: `--bg`, `--panel`, `--border`, `--border-2`, `--text`, `--muted`, `--accent`, `--warn`, `--crit`, `--header`, `--row-hov`, `--glow`.
+- `frontend/src/theme/ThemeContext.tsx` exposes `ThemeProvider`, `useTheme()`, `usePaletteStyle()`. Selected variant + mode persist in `localStorage` (`dre-variant`, `dre-theme`). Defaults: `console` + `dark`. On change, the provider writes each palette key onto `document.body.style` so global backgrounds/scrollbars pick up the palette.
+- `App.tsx` wraps the tree in `<ThemeProvider>`. Skin picker + dark/light toggle live in `components/layout/OpsHeader.tsx`.
+- **Styling rule:** components read colors via CSS vars — either `style={{ color: 'var(--accent)' }}` inline, or Tailwind arbitrary-value classes like `bg-[var(--panel)]`. The choropleth (`ByStatePage`) interpolates fill between `--panel` and `--accent` via a `mixColors(hexToRgb(panel), hexToRgb(accent), 0.2 + t*0.8)` helper so it stays palette-aware.
+
+### Layout components
+- `components/layout/OpsHeader.tsx`: top strip with session ID, UTC clock, invoice ID, skin picker, theme toggle. Clock ticks every second via `setInterval`.
+- `components/layout/MainLayout.tsx`: wraps Sidebar + main content, passes `uploadState` through for header KPIs.
+- `components/layout/Sidebar.tsx`: nav labels use ops-console slugs (`00 OVERVIEW`, `01 ANOMALIES`, `02 BY_ZONE`, `03 BY_STATE`, `04 TRENDS`, `05 EXPORT`). Nav item type is `PageId`.
+
+### Key component conventions
+- **KPI cards** (`components/kpi/KpiCard.tsx`): tagged `REG.000`…`REG.003`, Space Grotesk for the big number, muted meta line below. Four cards on Overview in a 4-col grid.
+- **Tables**: `> TBL.NN · <NAME>.<MODE>` header with right-aligned meta (`ORDER.BY ... DESC`, row count, `N / TOTAL FLAGGED`). Rows `border-b` only (no vertical lines). Flag cells render inline mark + label + confidence (e.g. `▲ UNEXPECTED 87%`). Selected row uses `background: var(--row-hov)` and shows a sticky copy bar beneath.
+- **Charts**: pure SVG for scatter (`ActualVsPredictedChart` — W=440 H=380 P=34) and zone radar (`ZoneChart`). Recharts retained only for `TrendsChart`. Legend dots use the same flag marks.
+- **Buttons**: border + transparent bg + `var(--accent)` text with `textShadow: var(--glow)` on console-dark primary actions (e.g. `⇣ DOWNLOAD .CSV`). Hover flips to `background: var(--row-hov)`.
+- **Empty state copy**: always `NO SIGNAL — INGEST AN INVOICE ON 00 OVERVIEW` (or `INGEST AN INVOICE` on Overview itself).
+- **Warming banner** (`App.tsx`): `◐ SERVER.WARMING · AWAIT ~60s · DEMO WILL AUTOSTART` — fixed `top-0 z-50`, amber warn color.
+
+### Data-model notes tied to the redesign
+- `ShipmentResult` added `row_index: number` (backend-assigned, monotonic) and changed `tracking_number` to `string | null`. Real invoices have missing or duplicate tracking numbers.
+- **Selection keys:** all tables and the scatter plot use `row_index` as the React `key` and as selection state (`selectedRowIndex: number | null`). Never use `tracking_number` — it can be null or duplicate.
+- **Null-safe display:** `row.tracking_number ?? <span className="italic opacity-60">no tracking #</span>`. CSV export uses `r.tracking_number ?? ''`.
+- `AnomaliesPage` added pagination: `PAGE_SIZE_OPTIONS = [50, 100, 250, 500]`, `page` state, `pagedRows` slice, clamped page effect on filter/sort change.
+
 ## Source data reference
 The real FedEx invoice data is `2years.csv` (root dir, 57,600 rows, Apr 2024 – Apr 2026).
 66 columns; key ones:
