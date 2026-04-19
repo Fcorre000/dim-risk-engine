@@ -30,16 +30,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Download pinned models (CI only)
-        # Placeholder: tests load xgb_*.ubj via lifespan. Real CI should pull
-        # from object storage. Skipping keeps the workflow green while we
-        # wire up that step — pip-audit still runs regardless.
-        if: false
-        run: echo "TODO: fetch models"
-
-      - name: Run pytest
-        if: false  # gated on model availability in CI
-        run: pytest -q
+      # Note: pytest is not run in CI yet because the XGBoost .ubj model
+      # binaries aren't fetched here. Wire up a model-download step
+      # (e.g. from S3 or GitHub release asset) before adding `pytest -q`.
 
       - name: pip-audit (SCA)
         run: |
