@@ -1,8 +1,50 @@
 import pandas as pd
 import numpy as np
 import io
+import zipfile
 import openpyxl
 from typing import Union
+
+# XLSX safety ceilings — each defends a different zip-bomb vector.
+# Reasonable real FedEx exports stay well under all of these; tune down if needed.
+MAX_XLSX_UNCOMPRESSED_BYTES = 250 * 1024 * 1024   # 250 MB total uncompressed
+MAX_XLSX_ENTRY_BYTES        = 150 * 1024 * 1024   # 150 MB single entry
+MAX_XLSX_ENTRIES            = 200                 # archive part count
+MAX_XLSX_COMPRESS_RATIO     = 100                 # per-entry bytes-out / bytes-in
+
+
+def _assert_xlsx_safe(data: bytes) -> None:
+    """Raise ValueError if the XLSX archive looks like a zip bomb.
+
+    Checks we apply BEFORE handing the bytes to openpyxl:
+    - archive opens cleanly as a zip
+    - entry count is bounded (prevents part-flood DoS)
+    - no single entry decompresses larger than `MAX_XLSX_ENTRY_BYTES`
+    - per-entry compression ratio stays under `MAX_XLSX_COMPRESS_RATIO`
+    - cumulative uncompressed size stays under `MAX_XLSX_UNCOMPRESSED_BYTES`
+
+    All five come from the ZIP header without actually decompressing, so this
+    is O(N_entries) and safe to run on untrusted input. The raw file-size cap
+    in the API layer bounds the compressed input; these bounds cover expansion.
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            infos = zf.infolist()
+            if len(infos) > MAX_XLSX_ENTRIES:
+                raise ValueError("XLSX has too many internal entries")
+            total_uncompressed = 0
+            for info in infos:
+                if info.file_size > MAX_XLSX_ENTRY_BYTES:
+                    raise ValueError("XLSX entry too large (possible zip bomb)")
+                if info.compress_size > 0:
+                    ratio = info.file_size / info.compress_size
+                    if ratio > MAX_XLSX_COMPRESS_RATIO:
+                        raise ValueError("XLSX compression ratio too high (possible zip bomb)")
+                total_uncompressed += info.file_size
+                if total_uncompressed > MAX_XLSX_UNCOMPRESSED_BYTES:
+                    raise ValueError("XLSX total uncompressed size exceeds limit")
+    except zipfile.BadZipFile as exc:
+        raise ValueError("Invalid XLSX file") from exc
 
 FEATURE_COLS = [
     'Original Weight (Pounds)', 'Dimmed Height (cm)', 'Dimmed Width (cm)',
@@ -45,7 +87,10 @@ def parse_invoice(file_bytes: io.BytesIO, filename: str) -> pd.DataFrame:
     """
     fn = filename.lower()
     if fn.endswith(".xlsx"):
-        df = pd.read_excel(file_bytes, engine="openpyxl")
+        # Buffer the bytes once so we can zip-bomb-check before openpyxl touches them.
+        data = file_bytes.read()
+        _assert_xlsx_safe(data)
+        df = pd.read_excel(io.BytesIO(data), engine="openpyxl")
     elif fn.endswith(".csv"):
         df = pd.read_csv(file_bytes)
     else:
@@ -118,7 +163,11 @@ def parse_invoice_chunks(file_obj, filename: str, chunksize: int = 1000):
             yield _preprocess_chunk(chunk)
 
     elif fn.endswith(".xlsx"):
-        wb = openpyxl.load_workbook(file_obj, read_only=True, data_only=True)
+        # Buffer once so we can zip-bomb-check before handing to openpyxl.
+        # file_obj may be a SpooledTemporaryFile or BytesIO — both support .read().
+        xlsx_bytes = file_obj.read()
+        _assert_xlsx_safe(xlsx_bytes)
+        wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes), read_only=True, data_only=True)
         try:
             ws = wb.active
             rows_iter = ws.iter_rows(min_row=1, max_row=1)

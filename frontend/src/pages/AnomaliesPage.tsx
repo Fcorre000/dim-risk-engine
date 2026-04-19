@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import type { ShipmentResult, UploadState } from '../types/api';
 import { formatDollars } from '../lib/metrics';
+import { escapeFormula } from '../lib/export';
 import CopyButton, { CopyTableButton } from '../components/ui/CopyButton';
 
 interface AnomaliesPageProps {
@@ -342,7 +343,7 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
               SELECTED <span style={{ color: 'var(--text)' }}>{selectedRow.tracking_number ?? `row #${selectedRow.row_index}`}</span>
             </span>
             <div className="flex items-center gap-2 flex-wrap">
-              <CopyButton text={selectedRow.tracking_number ?? ''} label="Tracking #" />
+              <CopyButton text={escapeFormula(selectedRow.tracking_number ?? '')} label="Tracking #" />
               <CopyButton text={formatDollars(selectedRow.actual_net_charge)} label="Actual" />
               <CopyButton
                 text={`${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}`}
@@ -353,7 +354,7 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                 label="Gap"
               />
               <CopyButton
-                text={`${selectedRow.tracking_number ?? ''}\t${selectedRow.service_type}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal'}`}
+                text={`${escapeFormula(selectedRow.tracking_number ?? '')}\t${escapeFormula(selectedRow.service_type)}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${escapeFormula(selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal')}`}
                 label="Full Row"
               />
               <button

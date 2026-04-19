@@ -4,6 +4,7 @@ from typing import Optional
 
 import pandas as pd
 import numpy as np
+import xgboost as xgb
 from ingest import build_feature_matrix, clean_zone
 
 
@@ -117,12 +118,15 @@ def run_inference(df: pd.DataFrame, clf, reg, residual_quantiles: Optional[dict]
     q95 = residual_quantiles["q95"]
 
     X = build_feature_matrix(df)
+    dmat = xgb.DMatrix(X)
 
-    # Classifier: P(DIM=Y) is the second class (index 1)
-    dim_proba_y = clf.predict_proba(X)[:, 1]
+    # Classifier: binary:logistic Booster.predict returns P(DIM=Y) directly — same
+    # as the second column of sklearn's predict_proba. Raw Booster avoids the
+    # sklearn wrapper (and its pickle attack surface).
+    dim_proba_y = clf.predict(dmat)
 
     # Regressor: log-space -> dollars via expm1
-    log_preds = reg.predict(X)
+    log_preds = reg.predict(dmat)
     predicted_charge = np.expm1(log_preds)
 
     # Prediction intervals: shift log-space predictions by calibrated residual quantiles

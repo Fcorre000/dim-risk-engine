@@ -44,9 +44,9 @@ def test_leakage_stripped(sample_df):
 
 
 def test_feature_matrix_shape(sample_df):
-    """Feature matrix has exactly 34 columns."""
+    """Feature matrix shape matches FEATURE_COLS (42 cols: 13 engineered + 15 svc + 4 pay + 10 zone)."""
     X = build_feature_matrix(sample_df)
-    assert X.shape[1] == 34
+    assert X.shape[1] == len(FEATURE_COLS)
     assert len(X) == len(sample_df)
 
 
@@ -66,9 +66,18 @@ def test_missing_zone_filled(sample_df):
 
 
 def test_engineered_features(sample_df):
-    """volume and dim_weight_calculator computed correctly."""
+    """volume and dim_weight_calculator computed in cubic inches (cm input → in conversion).
+
+    build_feature_matrix divides each cm dimension by 2.54 before multiplying, because
+    the FedEx DIM divisor (139) is expressed in in³/lb. Volume is therefore in³, not cm³.
+    """
     X = build_feature_matrix(sample_df)
-    expected_volume = 12.0 * 10.0 * 15.0  # 1800.0
+    CM_PER_IN = 2.54
+    # sample_df has 30 cm × 25 cm × 38 cm
+    h_in = 30.0 / CM_PER_IN
+    w_in = 25.0 / CM_PER_IN
+    l_in = 38.0 / CM_PER_IN
+    expected_volume = h_in * w_in * l_in
     expected_dim_calc = expected_volume / 139.0
     assert abs(X["volume"].iloc[0] - expected_volume) < 0.01
     assert abs(X["dim_weight_calculator"].iloc[0] - expected_dim_calc) < 0.01

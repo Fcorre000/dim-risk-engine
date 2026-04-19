@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { ShipmentResult } from '../../types/api';
 import { formatDollars } from '../../lib/metrics';
+import { escapeFormula } from '../../lib/export';
 
 interface CopyButtonProps {
   text: string;
@@ -15,18 +16,19 @@ function rowToTsv(r: ShipmentResult): string {
   const conf = r.dim_anomaly === 'Unexpected' && r.dim_confidence != null
     ? `${Math.round(r.dim_confidence * 100)}%`
     : r.cost_confidence ?? '';
+  // Paste-target is a spreadsheet cell — same formula-injection guard as CSV.
   return [
-    r.tracking_number ?? '',
-    r.service_type,
+    escapeFormula(r.tracking_number ?? ''),
+    escapeFormula(r.service_type),
     `${r.dim_length}x${r.dim_width}x${r.dim_height}`,
     `${r.weight_lbs} lbs`,
-    r.zone,
+    escapeFormula(r.zone),
     formatDollars(r.actual_net_charge),
     formatDollars(r.predicted_net_charge_low),
     formatDollars(r.predicted_net_charge_high),
     `${gap >= 0 ? '+' : ''}${formatDollars(gap)}`,
-    flag,
-    conf,
+    escapeFormula(flag),
+    escapeFormula(conf),
   ].join('\t');
 }
 

@@ -2,6 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      Content Security Policy — defence-in-depth against XSS.
+      - script-src 'self': only our bundled JS runs; no inline <script>.
+      - style-src allows Google Fonts stylesheet + React inline style attrs.
+      - connect-src 'self' https:: lets the SPA talk to the API backend on a
+        sibling HTTPS origin without hardcoding it at build time.
+      - frame-ancestors 'none': we don't render inside iframes.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DimRisk Engine</title>

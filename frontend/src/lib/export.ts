@@ -11,10 +11,27 @@ export function getDisputeCandidates(results: ShipmentResult[]): ShipmentResult[
   );
 }
 
+// CWE-1236: Excel / Google Sheets / LibreOffice treat cells whose first character
+// is one of `= + - @ \t \r` as a formula. A tracking number like `=HYPERLINK(...)`
+// would fire when a user opens our export. Prepending a single quote neutralises
+// the leading sigil — spreadsheets render it literally and strip the guard.
+const FORMULA_SIGILS = new Set(['=', '+', '-', '@', '\t', '\r']);
+
+export function escapeFormula(s: string): string {
+  if (!s) return s;
+  return FORMULA_SIGILS.has(s[0]) ? `'${s}` : s;
+}
+
+/** Quote a CSV field, neutralise leading formula sigils, and double any embedded quotes. */
+export function csvField(s: string): string {
+  return `"${escapeFormula(s).replace(/"/g, '""')}"`;
+}
+
 /**
  * Generate a CSV string from an array of dispute candidate shipments.
  * Columns: Tracking #, Flag type, Actual $, Predicted $, Gap $
- * Values are not quoted unless they contain a comma (plain numbers/IDs — safe).
+ * All string-valued fields are quoted and run through the formula-injection guard.
+ * Numeric fields come from `.toFixed()` so they're safe by construction.
  * Returns a string with CRLF line endings per RFC 4180.
  */
 export function generateDisputeCandidatesCsv(candidates: ShipmentResult[]): string {
@@ -28,7 +45,20 @@ export function generateDisputeCandidatesCsv(candidates: ShipmentResult[]): stri
     const predHigh = r.predicted_net_charge_high.toFixed(2);
     const gap = (r.actual_net_charge - r.predicted_net_charge_high).toFixed(2);
     const confidence = r.dim_confidence != null ? `${Math.round(r.dim_confidence * 100)}%` : (r.cost_confidence ?? '');
-    return `"${r.tracking_number ?? ''}",${r.service_type},${dims},${r.weight_lbs},${r.zone},${flagType},${actual},${predLow},${predicted},${predHigh},${gap},${confidence}`;
+    return [
+      csvField(r.tracking_number ?? ''),
+      csvField(r.service_type),
+      csvField(dims),
+      r.weight_lbs,
+      csvField(r.zone),
+      csvField(flagType),
+      actual,
+      predLow,
+      predicted,
+      predHigh,
+      gap,
+      csvField(confidence),
+    ].join(',');
   });
   return [HEADER, ...rows].join('\r\n');
 }

@@ -1,29 +1,31 @@
 import pytest
-import pickle
 import numpy as np
 import pandas as pd
+import xgboost as xgb
 from inference import run_inference, apply_anomaly_flags
 from ingest import FEATURE_COLS
 
 
+def _load_booster(models_dir, name: str) -> xgb.Booster:
+    booster = xgb.Booster()
+    booster.load_model(str(models_dir / name))
+    return booster
+
+
 def test_classifier_loaded(models_dir):
-    """INF-01: Classifier loads and predict_proba returns (N,2) shape."""
-    with open(models_dir / "xgb_classifier.pkl", "rb") as f:
-        clf = pickle.load(f)
-    X = pd.DataFrame(np.zeros((1, 34)), columns=FEATURE_COLS)
-    proba = clf.predict_proba(X)
-    assert proba.shape == (1, 2)
-    assert 0.0 <= proba[0, 0] <= 1.0
-    assert 0.0 <= proba[0, 1] <= 1.0
-    assert abs(proba[0, 0] + proba[0, 1] - 1.0) < 1e-6
+    """INF-01: Classifier loads and binary:logistic predict returns P(DIM=Y) in [0,1]."""
+    clf = _load_booster(models_dir, "xgb_classifier.ubj")
+    X = pd.DataFrame(np.zeros((1, len(FEATURE_COLS))), columns=FEATURE_COLS)
+    proba_y = clf.predict(xgb.DMatrix(X))
+    assert proba_y.shape == (1,)
+    assert 0.0 <= proba_y[0] <= 1.0
 
 
 def test_regressor_expm1(models_dir):
     """INF-02: Regressor output via expm1 is positive dollars."""
-    with open(models_dir / "xgb_regressor.pkl", "rb") as f:
-        reg = pickle.load(f)
-    X = pd.DataFrame(np.zeros((1, 34)), columns=FEATURE_COLS)
-    log_pred = reg.predict(X)
+    reg = _load_booster(models_dir, "xgb_regressor.ubj")
+    X = pd.DataFrame(np.zeros((1, len(FEATURE_COLS))), columns=FEATURE_COLS)
+    log_pred = reg.predict(xgb.DMatrix(X))
     dollar_pred = np.expm1(log_pred)
     assert dollar_pred[0] > 0, f"Expected positive dollars, got {dollar_pred[0]}"
 
@@ -109,10 +111,8 @@ def test_cost_anomaly_none():
 
 def test_run_inference_returns_list(sample_df, models_dir):
     """run_inference returns list of dicts with correct keys."""
-    with open(models_dir / "xgb_classifier.pkl", "rb") as f:
-        clf = pickle.load(f)
-    with open(models_dir / "xgb_regressor.pkl", "rb") as f:
-        reg = pickle.load(f)
+    clf = _load_booster(models_dir, "xgb_classifier.ubj")
+    reg = _load_booster(models_dir, "xgb_regressor.ubj")
     from inference import load_residual_quantiles
     rq = load_residual_quantiles(models_dir)
     results = run_inference(sample_df, clf, reg, rq)

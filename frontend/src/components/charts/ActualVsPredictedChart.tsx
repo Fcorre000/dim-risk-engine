@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { ShipmentResult } from '../../types/api';
 import { formatDollars } from '../../lib/metrics';
+import { escapeFormula } from '../../lib/export';
 import CopyButton from '../ui/CopyButton';
 
 interface ActualVsPredictedChartProps {
@@ -176,7 +177,7 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <CopyButton text={selected.tracking ?? ''} label="Tracking #" />
+              <CopyButton text={escapeFormula(selected.tracking ?? '')} label="Tracking #" />
               <CopyButton text={formatDollars(selected.actual)} label="Actual" />
               <CopyButton text={formatDollars(selected.predicted)} label="Predicted" />
               <CopyButton text={`${selected.gap >= 0 ? '+' : ''}${formatDollars(selected.gap)}`} label="Gap" />

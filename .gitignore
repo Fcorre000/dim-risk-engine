@@ -5,6 +5,12 @@
 /design_handoff_dimrisk_ops
 # dependencies
 frontend/node_modules
+api/.venv/
+.venv/
+# build artifacts — Render runs `npm run build` on deploy (see render.yaml),
+# so dist/ should not be tracked. Bundle hashes churn every edit and the
+# tree bloats diff review.
+frontend/dist/
 /.pnp
 .pnp.js
 *.xlsx

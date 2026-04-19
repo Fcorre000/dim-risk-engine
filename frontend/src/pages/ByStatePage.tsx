@@ -8,8 +8,10 @@ import type { UploadState } from '../types/api';
 import { computeStateData, formatDollars } from '../lib/metrics';
 import { useTheme } from '../theme/ThemeContext';
 import { getPalette } from '../theme/variants';
-
-const GEO_URL = 'https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json';
+// Bundled at build time from the pinned `us-atlas` npm dep (see package.json).
+// Previously loaded from jsdelivr CDN at runtime — moved in-tree to eliminate
+// the third-party supply-chain / MITM surface for map geometry.
+import statesTopology from 'us-atlas/states-10m.json';
 
 const NAME_TO_ABBR: Record<string, string> = {
   'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR',
@@ -127,7 +129,7 @@ export default function ByStatePage({ uploadState }: ByStatePageProps) {
             height={500}
             style={{ width: '100%', height: 'auto' }}
           >
-            <Geographies geography={GEO_URL}>
+            <Geographies geography={statesTopology}>
               {({ geographies }) =>
                 geographies.map((geo) => {
                   const stateName = geo.properties.name;
