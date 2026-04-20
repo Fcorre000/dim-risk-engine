@@ -1,11 +1,9 @@
 fastapi==0.135.3
 uvicorn==0.42.0
-python-multipart==0.0.22
+python-multipart==0.0.26
 pandas==2.2.2
 xgboost==3.2.0
 numpy==1.26.4
 openpyxl==3.1.2
 pydantic==2.12.5
 httpx==0.28.1
-pytest==7.4.4
-pytest-asyncio==0.23.8
