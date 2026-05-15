@@ -79,12 +79,13 @@ export default function Sidebar({ activePage, onNavigate, uploadState }: Sidebar
         })}
       </ul>
 
-      {/* Model */}
+      {/* Model — v2 (calibrated + conformal + anomaly fusion) */}
       <div className="mt-8 text-[9px] tracking-[0.3em] mb-3" style={{ color: 'var(--muted)' }}>&gt; MODEL</div>
       <div className="space-y-1 text-[10px]">
-        <KVRow k="cls.auc"   v="0.997" />
-        <KVRow k="reg.r2"    v="0.866" />
-        <KVRow k="reg.mae"   v="$3.88" />
+        <KVRow k="cls.auc"   v="0.999" />
+        <KVRow k="reg.r2"    v="0.888" />
+        <KVRow k="reg.mae"   v="$2.77" />
+        <KVRow k="ci.cover"  v="94.3%" />
         <KVRow k="n.predict" v={fmtInt(rows)} />
       </div>
 
