@@ -51,24 +51,34 @@ async function consumeNdjsonStream(
 
     for (const line of lines) {
       if (!line.trim()) continue;
+      let obj: { __meta__?: boolean; __error__?: string; total?: number; [key: string]: unknown } | null = null;
       try {
-        const obj = JSON.parse(line);
-        if (obj.__meta__) {
-          totalCount = typeof obj.total === 'number' ? obj.total : null;
-          setUploadState(prev => ({ ...prev, totalCount }));
-          continue;
-        }
-        if (obj.__error__) {
-          throw new Error(obj.__error__);
-        }
-        allResults.push(obj);
+        obj = JSON.parse(line);
+      } catch {
+        // Genuinely malformed NDJSON line — skip, keep streaming.
+        continue;
+      }
+      if (!obj) continue;
+      // Surface backend stream errors. Without this, the outer catch used to
+      // swallow them and the UI would say "complete · 0 shipments" silently.
+      if (obj.__error__) {
+        throw new Error(obj.__error__);
+      }
+      if (obj.__meta__) {
+        totalCount = typeof obj.total === 'number' ? obj.total : null;
+        setUploadState(prev => ({ ...prev, totalCount }));
+        continue;
+      }
+      try {
+        const row = obj as unknown as ShipmentResult;
+        allResults.push(row);
 
         // Update incremental KPI counters (O(1) per row) — same math as computeKpis,
         // applied row-by-row so the Overview tiles tick up as the stream lands.
-        if (obj.dim_probability > 0.5) dimFlaggedCount++;
-        if (obj.review_priority === 'high') disputeCandidates++;
-        if (obj.review_priority !== 'low') {
-          const gap = obj.actual_net_charge - obj.charge_upper_95;
+        if (row.dim_probability > 0.5) dimFlaggedCount++;
+        if (row.review_priority === 'high') disputeCandidates++;
+        if (row.review_priority !== 'low') {
+          const gap = row.actual_net_charge - row.charge_upper_95;
           if (gap > 0) estRecoverable += gap;
         }
 
