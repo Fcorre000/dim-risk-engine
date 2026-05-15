@@ -4,7 +4,7 @@ import { formatDollars } from '../../lib/metrics';
 import { escapeFormula } from '../../lib/export';
 import CopyButton, { CopyTableButton } from '../ui/CopyButton';
 
-type FilterValue = 'all' | 'unexpected' | 'review';
+type FilterValue = 'all' | 'high' | 'medium';
 
 interface AnomalyTableProps {
   results: ShipmentResult[];
@@ -15,27 +15,29 @@ interface AnomalyTableProps {
 }
 
 function FlagCell({ row }: { row: ShipmentResult }) {
-  if (row.dim_anomaly === 'Unexpected') {
+  if (row.review_priority === 'high') {
     return (
       <span className="tabular-nums whitespace-nowrap" style={{ color: 'var(--crit)' }}>
-        ▲ UNEXPECTED
-        {row.dim_confidence != null && (
-          <span className="ml-1 opacity-70">{Math.round(row.dim_confidence * 100)}%</span>
+        ▲ HIGH
+        {row.anomaly_score != null && (
+          <span className="ml-1 opacity-70">{Math.round(row.anomaly_score * 100)}%</span>
         )}
       </span>
     );
   }
-  if (row.cost_anomaly === 'Review') {
+  if (row.review_priority === 'medium') {
     return (
       <span className="tabular-nums whitespace-nowrap" style={{ color: 'var(--warn)' }}>
-        ■ REVIEW
-        {row.cost_confidence && <span className="ml-1 opacity-70">· {row.cost_confidence}</span>}
+        ■ MEDIUM
+        {row.anomaly_score != null && (
+          <span className="ml-1 opacity-70">{Math.round(row.anomaly_score * 100)}%</span>
+        )}
       </span>
     );
   }
   return (
     <span className="whitespace-nowrap" style={{ color: 'var(--muted)' }}>
-      · OK
+      · LOW
     </span>
   );
 }
@@ -58,7 +60,7 @@ function FlagInfoPopover() {
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        aria-label="Explain flag types"
+        aria-label="Explain priority levels"
         className="px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
         style={{ color: 'var(--muted)' }}
       >
@@ -70,17 +72,17 @@ function FlagInfoPopover() {
           className="absolute right-0 top-8 z-50 w-80 border p-3 text-[11px]"
           style={{ borderColor: 'var(--border-2)', background: 'var(--panel)', color: 'var(--text)' }}
         >
-          <p className="text-[10px] tracking-widest mb-3" style={{ color: 'var(--muted)' }}>&gt; FLAG TYPES</p>
+          <p className="text-[10px] tracking-widest mb-3" style={{ color: 'var(--muted)' }}>&gt; PRIORITY · AUDIT TRIAGE</p>
           <div className="mb-3">
-            <p style={{ color: 'var(--crit)' }}>▲ UNEXPECTED 87%</p>
+            <p style={{ color: 'var(--crit)' }}>▲ HIGH</p>
             <p className="leading-snug mt-1" style={{ color: 'var(--muted)' }}>
-              Model predicted FedEx would <em>not</em> apply DIM billing; they charged DIM anyway. Higher % = stronger dispute.
+              Two or more audit signals fired: DIM-flag disagrees with FedEx, actual charge above the 95% prediction interval, or unsupervised anomaly score above threshold.
             </p>
           </div>
           <div>
-            <p style={{ color: 'var(--warn)' }}>■ REVIEW · HIGH</p>
+            <p style={{ color: 'var(--warn)' }}>■ MEDIUM</p>
             <p className="leading-snug mt-1" style={{ color: 'var(--muted)' }}>
-              Actual charge exceeded the 90% prediction interval upper bound. Investigate above-range charges.
+              Exactly one audit signal fired. Suspicious but not corroborated — review when capacity allows.
             </p>
           </div>
         </div>
@@ -97,16 +99,16 @@ export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, ti
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
 
   const flaggedRows = useMemo(
-    () => results.filter((r) => r.dim_anomaly !== null || r.cost_anomaly !== null),
+    () => results.filter((r) => r.review_priority !== 'low'),
     [results],
   );
 
   const filteredRows = useMemo(() => {
     switch (filterValue) {
-      case 'unexpected':
-        return flaggedRows.filter((r) => r.dim_anomaly === 'Unexpected');
-      case 'review':
-        return flaggedRows.filter((r) => r.cost_anomaly === 'Review');
+      case 'high':
+        return flaggedRows.filter((r) => r.review_priority === 'high');
+      case 'medium':
+        return flaggedRows.filter((r) => r.review_priority === 'medium');
       default:
         return flaggedRows;
     }
@@ -124,7 +126,7 @@ export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, ti
       <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
         <div className="px-4 py-2 border-b text-[10px] tracking-widest flex justify-between" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
           <span>{title ?? '> TBL.01 · DISPUTE_QUEUE.PEEK'}</span>
-          <span>ORDER.BY dim.conf DESC</span>
+          <span>ORDER.BY priority DESC</span>
         </div>
         <div className="p-10 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
           NO SIGNAL — INGEST AN INVOICE
@@ -159,13 +161,13 @@ export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, ti
             id="anomaly-filter"
             value={filterValue}
             onChange={(e) => setFilterValue(e.target.value as FilterValue)}
-            aria-label="Filter anomalies by type"
+            aria-label="Filter anomalies by priority"
             className="border px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
             style={{ background: 'var(--panel)', borderColor: 'var(--border-2)', color: 'var(--text)' }}
           >
             <option value="all">ALL</option>
-            <option value="unexpected">UNEXPECTED</option>
-            <option value="review">REVIEW</option>
+            <option value="high">HIGH</option>
+            <option value="medium">MEDIUM</option>
           </select>
         </div>
       </div>
@@ -196,7 +198,9 @@ export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, ti
             ) : (
               displayRows.map((row) => {
                 const on = selectedRowIndex === row.row_index;
-                const resid = row.actual_net_charge - row.predicted_net_charge_high;
+                // Residual is the gap to the 95% upper bound — what the audit
+                // would actually try to recover, not the gap to the point pred.
+                const resid = row.actual_net_charge - row.charge_upper_95;
                 return (
                   <tr
                     key={row.row_index}
@@ -224,7 +228,7 @@ export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, ti
                     <td className="px-4 py-1.5" style={{ color: 'var(--muted)' }}>{row.zone}</td>
                     <td className="px-4 py-1.5 tabular-nums text-right">{formatDollars(row.actual_net_charge)}</td>
                     <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
-                      {formatDollars(row.predicted_net_charge_low)}<span className="mx-0.5 opacity-50">–</span>{formatDollars(row.predicted_net_charge_high)}
+                      {formatDollars(row.charge_lower_95)}<span className="mx-0.5 opacity-50">–</span>{formatDollars(row.charge_upper_95)}
                     </td>
                     <td
                       className="px-4 py-1.5 tabular-nums text-right"
@@ -256,11 +260,11 @@ export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, ti
             <CopyButton text={escapeFormula(selectedRow.tracking_number ?? '')} label="Tracking #" />
             <CopyButton text={formatDollars(selectedRow.actual_net_charge)} label="Actual" />
             <CopyButton
-              text={`${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}`}
+              text={`${formatDollars(selectedRow.charge_lower_95)} – ${formatDollars(selectedRow.charge_upper_95)}`}
               label="Predicted Range"
             />
             <CopyButton
-              text={`${escapeFormula(selectedRow.tracking_number ?? '')}\t${escapeFormula(selectedRow.service_type)}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${escapeFormula(selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal')}`}
+              text={`${escapeFormula(selectedRow.tracking_number ?? '')}\t${escapeFormula(selectedRow.service_type)}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.charge_lower_95)} – ${formatDollars(selectedRow.charge_upper_95)}\t${selectedRow.review_priority.toUpperCase()}`}
               label="Full Row"
             />
             <button

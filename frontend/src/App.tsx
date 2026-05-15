@@ -63,11 +63,12 @@ async function consumeNdjsonStream(
         }
         allResults.push(obj);
 
-        // Update incremental KPI counters (O(1) per row)
-        if (obj.dim_flag_probability > 0.5) dimFlaggedCount++;
-        if (obj.dim_anomaly === 'Unexpected') {
-          disputeCandidates++;
-          const gap = obj.actual_net_charge - obj.predicted_net_charge_high;
+        // Update incremental KPI counters (O(1) per row) — same math as computeKpis,
+        // applied row-by-row so the Overview tiles tick up as the stream lands.
+        if (obj.dim_probability > 0.5) dimFlaggedCount++;
+        if (obj.review_priority === 'high') disputeCandidates++;
+        if (obj.review_priority !== 'low') {
+          const gap = obj.actual_net_charge - obj.charge_upper_95;
           if (gap > 0) estRecoverable += gap;
         }
 

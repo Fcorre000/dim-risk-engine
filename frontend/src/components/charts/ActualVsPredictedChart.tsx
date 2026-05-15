@@ -8,7 +8,7 @@ interface ActualVsPredictedChartProps {
   data: ShipmentResult[];
 }
 
-type FlagType = 'unexpected' | 'review' | 'ok';
+type FlagType = 'high' | 'medium' | 'ok';
 
 interface ScatterPoint {
   rowIndex: number;
@@ -26,8 +26,8 @@ const H = 380;
 const P = 34;
 
 function colorFor(flag: FlagType): string {
-  if (flag === 'unexpected') return 'var(--crit)';
-  if (flag === 'review') return 'var(--warn)';
+  if (flag === 'high') return 'var(--crit)';
+  if (flag === 'medium') return 'var(--warn)';
   return 'var(--accent)';
 }
 
@@ -38,13 +38,13 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
     () =>
       data.map((r) => ({
         rowIndex: r.row_index,
-        predicted: r.predicted_net_charge,
+        predicted: r.charge_predicted,
         actual: r.actual_net_charge,
         tracking: r.tracking_number,
         service: r.service_type,
         zone: r.zone,
-        gap: r.actual_net_charge - r.predicted_net_charge,
-        flag: r.dim_anomaly === 'Unexpected' ? 'unexpected' : r.cost_anomaly === 'Review' ? 'review' : 'ok',
+        gap: r.actual_net_charge - r.charge_predicted,
+        flag: r.review_priority === 'high' ? 'high' : r.review_priority === 'medium' ? 'medium' : 'ok',
       })),
     [data],
   );
@@ -144,13 +144,13 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
       {/* Legend */}
       <div className="flex items-center justify-center gap-5 mt-3 text-[10px] tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
         <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2" style={{ background: 'var(--crit)' }} />▲ UNEXPECTED
+          <span className="w-2 h-2" style={{ background: 'var(--crit)' }} />▲ HIGH
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2" style={{ background: 'var(--warn)' }} />■ REVIEW
+          <span className="w-2 h-2" style={{ background: 'var(--warn)' }} />■ MEDIUM
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2" style={{ background: 'var(--accent)' }} />· OK
+          <span className="w-2 h-2" style={{ background: 'var(--accent)' }} />· LOW
         </span>
       </div>
 

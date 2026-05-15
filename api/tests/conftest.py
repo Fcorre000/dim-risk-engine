@@ -13,16 +13,24 @@ def client():
 
 @pytest.fixture
 def sample_df():
-    """Minimal valid DataFrame matching FedEx invoice structure."""
+    """Minimal valid DataFrame matching FedEx invoice structure.
+
+    Includes v2-relevant columns (postal codes, state, invoice month) so
+    predict_shipment runs against the real feature set, not a degraded one.
+    """
     return pd.DataFrame({
         "Tracking Number": ["1234567890"],
         "Original Weight (Pounds)": [10.0],
         "Dimmed Height (cm)": [30.0],
         "Dimmed Width (cm)": [25.0],
         "Dimmed Length (cm)": [38.0],
-        "Service Type": ["FO"],
+        "Service Type": ["Ground"],
         "Pay Type": ["Bill_Sender_Prepaid"],
         "Pricing Zone": ["2"],
+        "Shipper Postal Code": ["76019"],
+        "Recipient Postal Code": ["90210"],
+        "Recipient State/Province": ["CA"],
+        "Invoice Month (yyyymm)": [202407],
         "Shipment DIM Flag (Y or N)": ["Y"],
         "Net Charge Billed Currency": [50.0],
         "Shipment Date (mm/dd/yyyy)": ["07/17/2024"],

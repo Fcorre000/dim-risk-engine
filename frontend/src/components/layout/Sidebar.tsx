@@ -40,8 +40,8 @@ export default function Sidebar({ activePage, onNavigate, uploadState }: Sidebar
 
   // Derive live ingest values — prefer streaming KPIs mid-upload, final counts otherwise
   const rows = shipmentCount;
-  const flagged = sk?.dimFlaggedCount ?? (uploadState.results?.filter(r => r.dim_flag_probability > 0.5).length ?? 0);
-  const dispute = sk?.disputeCandidates ?? (uploadState.results?.filter(r => r.dim_anomaly === 'Unexpected').length ?? 0);
+  const flagged = sk?.dimFlaggedCount ?? (uploadState.results?.filter(r => r.dim_probability > 0.5).length ?? 0);
+  const dispute = sk?.disputeCandidates ?? (uploadState.results?.filter(r => r.review_priority === 'high').length ?? 0);
 
   return (
     <aside

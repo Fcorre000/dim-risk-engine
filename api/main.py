@@ -5,10 +5,8 @@ import logging
 import os
 import pathlib
 import time
-import warnings
 from typing import Optional
 
-import xgboost as xgb
 from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -17,9 +15,8 @@ from pydantic import BaseModel
 import json as _json
 
 from ingest import parse_invoice, parse_invoice_chunks
-from inference import run_inference, load_residual_quantiles
-
-warnings.filterwarnings("ignore", message=".*Booster.*", category=UserWarning)
+from inference import run_inference
+from predict import _load_artifacts as _predict_load_artifacts
 
 logger = logging.getLogger("dimrisk.api")
 
@@ -133,22 +130,22 @@ async def _read_bounded(file: UploadFile, limit: int) -> Optional[bytes]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    model_path_env = os.environ.get("MODEL_PATH")
-    if model_path_env:
-        models_dir = pathlib.Path(model_path_env)
-    else:
-        models_dir = pathlib.Path(__file__).parent.parent / "models"
-
-    # Native XGBoost UBJ format — plain data, no code execution on load.
-    # Migrated from pickle.load in 2026-04-18 to close an RCE-on-boot sink.
-    # Regenerate with: scripts/convert_models_to_ubj.py
-    clf = xgb.Booster()
-    clf.load_model(str(models_dir / "xgb_classifier.ubj"))
-    reg = xgb.Booster()
-    reg.load_model(str(models_dir / "xgb_regressor.ubj"))
-    app.state.clf = clf
-    app.state.reg = reg
-    app.state.residual_quantiles = load_residual_quantiles(models_dir)
+    # Warm the v2 artifact cache so the first /analyze request doesn't pay the
+    # ~1s pickle-load latency. `_load_artifacts` is @lru_cache'd inside predict.py,
+    # so the actual file reads happen here, on startup, and subsequent calls hit
+    # the cache.
+    #
+    # SECURITY NOTE: The v2 classifier (CalibratedClassifierCV), v2 regressor
+    # (MapieSplitConformalRegressor), IsolationForest, and StandardScaler can't
+    # be serialised as native XGBoost UBJ — they're sklearn-wrapper objects, so
+    # we're back on `joblib.load` which is just pickle under the hood. Anyone
+    # who can write to `models/*.pkl` before the process boots gets RCE. The
+    # mitigation is the boundary: those artifacts ship in the repo, deploys
+    # come from CI, and the running container has a read-only models/ mount.
+    # If we ever need a stronger guarantee, the path is shipping these as
+    # `safetensors`/ONNX (where supported) plus a separate JSON config.
+    _predict_load_artifacts()
+    app.state.artifacts_loaded = True
     yield
 
 
@@ -198,31 +195,37 @@ async def security_headers(request: Request, call_next):
 
 
 class ShipmentResult(BaseModel):
-    row_index: int                 # globally unique per-upload id (stable React key)
-    tracking_number: Optional[str] # nullable — FedEx exports occasionally omit it
-    service_type: str              # e.g. "FO", "SG", "PO"
-    weight_lbs: float              # Original Weight (Pounds)
-    dim_length: float              # Dimmed Length (in)
-    dim_width: float               # Dimmed Width (in)
-    dim_height: float              # Dimmed Height (in)
-    zone: str                      # Pricing Zone, normalized ("02", "Other")
-    shipment_date: Optional[str]   # "YYYY-MM-DD" or null if not in source
-    dim_flag_probability: float    # P(DIM=Y), 0.0-1.0
-    actual_net_charge: float       # dollars, from Net Charge Billed Currency column
-    predicted_net_charge: float    # dollars, after np.expm1()
-    predicted_net_charge_low: float   # 5th percentile lower bound (dollars)
-    predicted_net_charge_high: float  # 95th percentile upper bound (dollars)
-    dim_anomaly: Optional[str]     # "Unexpected" or None
-    dim_confidence: Optional[float]   # P(DIM=N) when dim_anomaly is Unexpected, else None
-    cost_anomaly: Optional[str]    # "Review" or None
-    cost_confidence: Optional[str]    # "High" if actual > pred_high, else None
+    # Display fields (echoed straight from the invoice)
+    row_index: int                       # globally unique per-upload id (stable React key)
+    tracking_number: Optional[str]       # nullable — FedEx exports occasionally omit it
+    service_type: str                    # e.g. "Ground", "FO", "SG"
+    weight_lbs: float                    # Original Weight (Pounds)
+    dim_length: float                    # Dimmed Length (cm)
+    dim_width: float                     # Dimmed Width (cm)
+    dim_height: float                    # Dimmed Height (cm)
+    zone: str                            # Pricing Zone, normalized ("02", "Other")
+    shipment_date: Optional[str]         # "YYYY-MM-DD" or null if not in source
+    recipient_state: Optional[str]       # 2-letter US state code, with column-shift fallback
+
+    # v2 contract — see docs/api_contract.md
+    dim_probability: float               # calibrated P(DIM flagged), 0.0–1.0
+    dim_disagrees_with_fedex: Optional[bool]  # null when ground truth absent
+    actual_net_charge: float             # dollars, from Net Charge Billed Currency
+    charge_predicted: float              # conformal point prediction (USD)
+    charge_lower_95: float               # lower bound of 95% prediction interval
+    charge_upper_95: float               # upper bound of 95% prediction interval
+    charge_outside_interval: Optional[bool]   # null when ground truth absent
+    anomaly_score: Optional[float]       # IF + AE fused percentile rank, 0.0–1.0
+    anomaly_flagged: Optional[bool]      # true iff anomaly_score >= calibrated threshold
+    review_recommended: bool             # true if any of the three audit signals fired
+    review_priority: str                 # "high" | "medium" | "low"
 
 
 @app.get("/health")
 async def health():
     return {
         "status": "ok",
-        "models_loaded": hasattr(app.state, "clf") and hasattr(app.state, "reg"),
+        "models_loaded": getattr(app.state, "artifacts_loaded", False),
     }
 
 
@@ -255,7 +258,7 @@ async def analyze(request: Request, file: UploadFile = File(...)):
 
     # Run inference
     try:
-        results = run_inference(df, request.app.state.clf, request.app.state.reg, request.app.state.residual_quantiles)
+        results = run_inference(df)
     except Exception:
         logger.exception("run_inference failed (%s, rows=%d)", filename, len(df))
         return JSONResponse(status_code=500, content={"detail": "Internal error while scoring invoice."})
@@ -297,16 +300,12 @@ async def analyze_stream(request: Request, file: UploadFile = File(...)):
     except Exception:
         pass
 
-    clf = request.app.state.clf
-    reg = request.app.state.reg
-    rq = request.app.state.residual_quantiles
-
     def generate():
         yield _json.dumps({"__meta__": True, "total": total}) + "\n"
         offset = 0
         try:
             for chunk in parse_invoice_chunks(io.BytesIO(contents), filename, chunksize=1000):
-                for row in run_inference(chunk, clf, reg, rq, start_index=offset):
+                for row in run_inference(chunk, start_index=offset):
                     yield _json.dumps(row) + "\n"
                 offset += len(chunk)
         except ValueError as e:
@@ -335,16 +334,12 @@ async def demo_stream(request: Request):
 
     total = max(0, contents.count(b"\n") - 1)
 
-    clf = request.app.state.clf
-    reg = request.app.state.reg
-    rq = request.app.state.residual_quantiles
-
     def generate():
         yield _json.dumps({"__meta__": True, "total": total}) + "\n"
         offset = 0
         try:
             for chunk in parse_invoice_chunks(io.BytesIO(contents), filename, chunksize=1000):
-                for row in run_inference(chunk, clf, reg, rq, start_index=offset):
+                for row in run_inference(chunk, start_index=offset):
                     yield _json.dumps(row) + "\n"
                 offset += len(chunk)
         except ValueError as e:

@@ -16,6 +16,7 @@ frontend/dist/
 *.xlsx
 *.csv
 !api/sample_invoice.csv
+!data/das_zips.csv
 # testing
 /coverage
 

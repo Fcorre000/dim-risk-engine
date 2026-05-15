@@ -15,37 +15,40 @@ const PAGE_SIZE_OPTIONS = [50, 100, 250, 500] as const;
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 
 function flagOrder(r: ShipmentResult): number {
-  if (r.dim_anomaly === 'Unexpected') return 0;
-  if (r.cost_anomaly === 'Review') return 1;
+  if (r.review_priority === 'high') return 0;
+  if (r.review_priority === 'medium') return 1;
   return 2;
 }
 
+// "Confidence" in the v2 contract is the unsupervised anomaly fusion score
+// (IsolationForest + autoencoder percentile rank). Falls back to 0 when the
+// anomaly artifacts weren't loaded.
 function confidenceScore(r: ShipmentResult): number {
-  if (r.dim_anomaly === 'Unexpected' && r.dim_confidence != null) return r.dim_confidence;
-  if (r.cost_anomaly === 'Review') return r.cost_confidence === 'High' ? 1 : 0.5;
-  return 0;
+  return r.anomaly_score ?? 0;
 }
 
 function FlagCell({ row }: { row: ShipmentResult }) {
-  if (row.dim_anomaly === 'Unexpected') {
+  if (row.review_priority === 'high') {
     return (
       <span className="tabular-nums whitespace-nowrap" style={{ color: 'var(--crit)' }}>
-        ▲ UNEXPECTED
-        {row.dim_confidence != null && (
-          <span className="ml-1 opacity-70">{Math.round(row.dim_confidence * 100)}%</span>
+        ▲ HIGH
+        {row.anomaly_score != null && (
+          <span className="ml-1 opacity-70">{Math.round(row.anomaly_score * 100)}%</span>
         )}
       </span>
     );
   }
-  if (row.cost_anomaly === 'Review') {
+  if (row.review_priority === 'medium') {
     return (
       <span className="tabular-nums whitespace-nowrap" style={{ color: 'var(--warn)' }}>
-        ■ REVIEW
-        {row.cost_confidence && <span className="ml-1 opacity-70">· {row.cost_confidence}</span>}
+        ■ MEDIUM
+        {row.anomaly_score != null && (
+          <span className="ml-1 opacity-70">{Math.round(row.anomaly_score * 100)}%</span>
+        )}
       </span>
     );
   }
-  return <span style={{ color: 'var(--muted)' }}>· OK</span>;
+  return <span style={{ color: 'var(--muted)' }}>· LOW</span>;
 }
 
 function SortMark({ col, sortCol, sortDir }: { col: SortColumn; sortCol: SortColumn; sortDir: SortDir }) {
@@ -72,7 +75,7 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
   const results = uploadState.results ?? [];
 
   const flaggedRows = useMemo(
-    () => results.filter((r) => r.dim_anomaly !== null || r.cost_anomaly !== null),
+    () => results.filter((r) => r.review_priority !== 'low'),
     [results]
   );
 
@@ -87,8 +90,8 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
       } else if (sortCol === 'confidence') {
         cmp = confidenceScore(a) - confidenceScore(b);
       } else {
-        const gapA = a.actual_net_charge - a.predicted_net_charge_high;
-        const gapB = b.actual_net_charge - b.predicted_net_charge_high;
+        const gapA = a.actual_net_charge - a.charge_upper_95;
+        const gapB = b.actual_net_charge - b.charge_upper_95;
         cmp = gapA - gapB;
       }
       return sortDir === 'asc' ? cmp : -cmp;
@@ -239,7 +242,7 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                 </tr>
               ) : (
                 pagedRows.map((row) => {
-                  const gap = row.actual_net_charge - row.predicted_net_charge_high;
+                  const gap = row.actual_net_charge - row.charge_upper_95;
                   const conf = confidenceScore(row);
                   const isSelected = selectedRowIndex === row.row_index;
                   return (
@@ -269,9 +272,9 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                         {formatDollars(row.actual_net_charge)}
                       </td>
                       <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
-                        {formatDollars(row.predicted_net_charge_low)}
+                        {formatDollars(row.charge_lower_95)}
                         <span className="mx-0.5 opacity-50">–</span>
-                        {formatDollars(row.predicted_net_charge_high)}
+                        {formatDollars(row.charge_upper_95)}
                       </td>
                       <td
                         className="px-4 py-1.5 tabular-nums text-right"
@@ -346,15 +349,15 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
               <CopyButton text={escapeFormula(selectedRow.tracking_number ?? '')} label="Tracking #" />
               <CopyButton text={formatDollars(selectedRow.actual_net_charge)} label="Actual" />
               <CopyButton
-                text={`${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}`}
+                text={`${formatDollars(selectedRow.charge_lower_95)} – ${formatDollars(selectedRow.charge_upper_95)}`}
                 label="Predicted Range"
               />
               <CopyButton
-                text={`${(selectedRow.actual_net_charge - selectedRow.predicted_net_charge_high) >= 0 ? '+' : ''}${formatDollars(selectedRow.actual_net_charge - selectedRow.predicted_net_charge_high)}`}
+                text={`${(selectedRow.actual_net_charge - selectedRow.charge_upper_95) >= 0 ? '+' : ''}${formatDollars(selectedRow.actual_net_charge - selectedRow.charge_upper_95)}`}
                 label="Gap"
               />
               <CopyButton
-                text={`${escapeFormula(selectedRow.tracking_number ?? '')}\t${escapeFormula(selectedRow.service_type)}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.predicted_net_charge_low)} – ${formatDollars(selectedRow.predicted_net_charge_high)}\t${escapeFormula(selectedRow.dim_anomaly ?? selectedRow.cost_anomaly ?? 'Normal')}`}
+                text={`${escapeFormula(selectedRow.tracking_number ?? '')}\t${escapeFormula(selectedRow.service_type)}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.charge_lower_95)} – ${formatDollars(selectedRow.charge_upper_95)}\t${selectedRow.review_priority.toUpperCase()}`}
                 label="Full Row"
               />
               <button

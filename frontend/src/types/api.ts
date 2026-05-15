@@ -1,7 +1,10 @@
+export type ReviewPriority = 'high' | 'medium' | 'low';
+
 export interface ShipmentResult {
+  // Display fields (echoed straight from the invoice)
   row_index: number;                // globally unique per-upload id (stable React key)
   tracking_number: string | null;   // can be null when FedEx export omits the column
-  service_type: string;             // e.g. "FO", "SG", "PO"
+  service_type: string;             // e.g. "Ground", "FO", "SG"
   weight_lbs: number;               // Original Weight (Pounds)
   dim_length: number;               // Dimmed Length (cm)
   dim_width: number;                // Dimmed Width (cm)
@@ -9,23 +12,27 @@ export interface ShipmentResult {
   zone: string;                     // Pricing Zone, normalized ("02", "Other")
   shipment_date: string | null;     // "YYYY-MM-DD" or null if not in source
   recipient_state: string | null;   // US state code, e.g. "CA", "TX" — null if not in source
-  dim_flag_probability: number;     // 0.0 to 1.0
-  actual_net_charge: number;        // dollars, from invoice
-  predicted_net_charge: number;     // dollars, model output
-  predicted_net_charge_low: number;  // 5th percentile lower bound (dollars)
-  predicted_net_charge_high: number; // 95th percentile upper bound (dollars)
-  dim_anomaly: 'Unexpected' | null;
-  dim_confidence: number | null;     // P(DIM=N) when Unexpected, else null
-  cost_anomaly: 'Review' | null;
-  cost_confidence: 'Low' | 'Medium' | 'High' | 'Critical' | null;  // graded by overage/CI-width
+
+  // v2 contract — see docs/api_contract.md
+  dim_probability: number;                       // calibrated P(DIM flagged), 0.0–1.0
+  dim_disagrees_with_fedex: boolean | null;      // null when ground truth absent
+  actual_net_charge: number;                     // dollars, from invoice
+  charge_predicted: number;                      // conformal point prediction (USD)
+  charge_lower_95: number;                       // lower bound of 95% prediction interval
+  charge_upper_95: number;                       // upper bound of 95% prediction interval
+  charge_outside_interval: boolean | null;       // null when ground truth absent
+  anomaly_score: number | null;                  // IF + AE fused percentile rank, 0.0–1.0
+  anomaly_flagged: boolean | null;               // true iff anomaly_score >= calibrated threshold
+  review_recommended: boolean;                   // true if any of the three audit signals fired
+  review_priority: ReviewPriority;               // 'high' | 'medium' | 'low'
 }
 
 export type PageId = 'overview' | 'anomalies' | 'by-zone' | 'by-state' | 'trends' | 'export';
 
 export interface StreamingKpis {
-  dimFlaggedCount: number;
-  disputeCandidates: number;
-  estRecoverable: number;
+  dimFlaggedCount: number;        // count of rows where dim_disagrees_with_fedex === true
+  disputeCandidates: number;      // count of rows where review_priority === 'high'
+  estRecoverable: number;         // sum of max(0, actual_net_charge - charge_upper_95) over flagged rows
 }
 
 export interface UploadState {

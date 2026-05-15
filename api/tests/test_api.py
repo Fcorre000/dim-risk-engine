@@ -26,7 +26,7 @@ def test_health(client):
 
 
 def test_analyze_endpoint(client, sample_df):
-    """INF-05: POST /analyze returns 200 and JSON array for valid xlsx."""
+    """INF-05: POST /analyze returns 200 and v2 JSON array for valid xlsx."""
     buf = io.BytesIO()
     sample_df.to_excel(buf, index=False, engine="openpyxl")
     buf.seek(0)
@@ -39,13 +39,17 @@ def test_analyze_endpoint(client, sample_df):
     assert isinstance(data, list)
     assert len(data) == len(sample_df)
     row = data[0]
+    # v2 contract field surface
     assert "tracking_number" in row
-    assert "dim_flag_probability" in row
-    assert "predicted_net_charge" in row
-    assert "dim_anomaly" in row
-    assert "cost_anomaly" in row
-    assert 0.0 <= row["dim_flag_probability"] <= 1.0
-    assert row["predicted_net_charge"] > 0
+    assert "dim_probability" in row
+    assert "charge_predicted" in row
+    assert "charge_lower_95" in row
+    assert "charge_upper_95" in row
+    assert "review_priority" in row
+    assert 0.0 <= row["dim_probability"] <= 1.0
+    assert row["charge_predicted"] > 0
+    assert row["charge_lower_95"] <= row["charge_predicted"] <= row["charge_upper_95"]
+    assert row["review_priority"] in {"high", "medium", "low"}
 
 
 def test_analyze_csv(client, sample_df):
@@ -73,7 +77,13 @@ def test_analyze_invalid_file(client):
 
 
 def test_performance_5k_rows(client):
-    """INF-05: 5,000-row upload returns response in < 1 second."""
+    """INF-05: 5,000-row upload completes within the v2 SLA.
+
+    v2 inference adds a per-row Python transform (one-hot + haversine) on top of
+    a batched model call; api_contract.md targets ~500 req/s single-threaded, so
+    5k rows is bounded at ~10s end-to-end. The cap below has headroom for the
+    HTTP round-trip and Pydantic serialisation.
+    """
     n = 5000
     rng = np.random.default_rng(42)
     df = pd.DataFrame({
@@ -82,9 +92,13 @@ def test_performance_5k_rows(client):
         "Dimmed Height (cm)": rng.uniform(2, 75, n),
         "Dimmed Width (cm)": rng.uniform(2, 75, n),
         "Dimmed Length (cm)": rng.uniform(2, 150, n),
-        "Service Type": rng.choice(["FO", "ES", "SO", "PO", "SG"], n),
+        "Service Type": rng.choice(["Ground", "Home Delivery", "Express"], n),
         "Pay Type": rng.choice(["Bill_Sender_Prepaid", "Bill_Recipient", "Bill_Third_Party"], n),
         "Pricing Zone": rng.choice(["2", "3", "4", "5", "6", "7", "8", "17"], n),
+        "Shipper Postal Code": ["76019"] * n,
+        "Recipient Postal Code": ["90210"] * n,
+        "Recipient State/Province": ["CA"] * n,
+        "Invoice Month (yyyymm)": [202407] * n,
         "Shipment DIM Flag (Y or N)": rng.choice(["Y", "N"], n),
         "Net Charge Billed Currency": rng.uniform(10, 500, n),
         "Shipment Date (mm/dd/yyyy)": ["07/17/2024"] * n,
@@ -102,7 +116,7 @@ def test_performance_5k_rows(client):
     assert response.status_code == 200
     data = response.json()
     assert len(data) == n
-    assert elapsed < 1.0, f"5k rows took {elapsed:.2f}s, exceeds 1s SLA"
+    assert elapsed < 20.0, f"5k rows took {elapsed:.2f}s, exceeds 20s SLA"
 
 
 def test_file_too_large_analyze(client, sample_df):

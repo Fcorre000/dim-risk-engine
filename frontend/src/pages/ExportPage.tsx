@@ -10,7 +10,7 @@ export default function ExportPage({ uploadState }: ExportPageProps) {
   const results = uploadState.results ?? [];
   const candidates = getDisputeCandidates(results);
   const totalGap = candidates.reduce(
-    (sum, r) => sum + (r.actual_net_charge - r.predicted_net_charge),
+    (sum, r) => sum + Math.max(0, r.actual_net_charge - r.charge_upper_95),
     0
   );
 
@@ -35,10 +35,13 @@ export default function ExportPage({ uploadState }: ExportPageProps) {
     );
   }
 
+  // Sort by recoverable gap (actual - upper bound), descending — same definition
+  // used by the Overview "Est. recoverable" KPI so the top of this list is also
+  // the most cash on the table.
   const sortedCandidates = [...candidates].sort(
     (a, b) =>
-      (b.actual_net_charge - b.predicted_net_charge) -
-      (a.actual_net_charge - a.predicted_net_charge)
+      (b.actual_net_charge - b.charge_upper_95) -
+      (a.actual_net_charge - a.charge_upper_95)
   );
 
   return (
@@ -110,8 +113,9 @@ export default function ExportPage({ uploadState }: ExportPageProps) {
               </thead>
               <tbody>
                 {sortedCandidates.map((row) => {
-                  const gap = row.actual_net_charge - row.predicted_net_charge;
-                  const isUnexpected = row.dim_anomaly === 'Unexpected';
+                  // Same "recoverable" math as Overview KPI — gap to upper bound, not to point.
+                  const gap = row.actual_net_charge - row.charge_upper_95;
+                  const isHigh = row.review_priority === 'high';
                   return (
                     <tr
                       key={row.row_index}
@@ -124,17 +128,17 @@ export default function ExportPage({ uploadState }: ExportPageProps) {
                         {row.tracking_number ?? <span className="italic opacity-60">no tracking #</span>}
                       </td>
                       <td className="px-4 py-1.5 whitespace-nowrap">
-                        {isUnexpected ? (
-                          <span style={{ color: 'var(--crit)' }}>▲ UNEXPECTED</span>
+                        {isHigh ? (
+                          <span style={{ color: 'var(--crit)' }}>▲ HIGH</span>
                         ) : (
-                          <span style={{ color: 'var(--warn)' }}>■ REVIEW</span>
+                          <span style={{ color: 'var(--warn)' }}>■ MEDIUM</span>
                         )}
                       </td>
                       <td className="px-4 py-1.5 tabular-nums text-right">
                         {formatDollars(row.actual_net_charge)}
                       </td>
                       <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
-                        {formatDollars(row.predicted_net_charge)}
+                        {formatDollars(row.charge_predicted)}
                       </td>
                       <td
                         className="px-4 py-1.5 tabular-nums text-right"

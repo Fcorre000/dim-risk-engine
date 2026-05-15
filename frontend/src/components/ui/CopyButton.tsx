@@ -8,14 +8,11 @@ interface CopyButtonProps {
   label: string;
 }
 
-const TSV_HEADER = 'Tracking #\tService\tDims\tWeight\tZone\tActual\tPredicted Low\tPredicted High\tGap\tFlag\tConfidence';
+const TSV_HEADER = 'Tracking #\tService\tDims\tWeight\tZone\tActual\tPredicted Low\tPredicted High\tGap\tPriority\tAnomaly Score';
 
 function rowToTsv(r: ShipmentResult): string {
-  const gap = r.actual_net_charge - r.predicted_net_charge_high;
-  const flag = r.dim_anomaly ?? r.cost_anomaly ?? '';
-  const conf = r.dim_anomaly === 'Unexpected' && r.dim_confidence != null
-    ? `${Math.round(r.dim_confidence * 100)}%`
-    : r.cost_confidence ?? '';
+  const gap = r.actual_net_charge - r.charge_upper_95;
+  const score = r.anomaly_score != null ? `${Math.round(r.anomaly_score * 100)}%` : '';
   // Paste-target is a spreadsheet cell — same formula-injection guard as CSV.
   return [
     escapeFormula(r.tracking_number ?? ''),
@@ -24,11 +21,11 @@ function rowToTsv(r: ShipmentResult): string {
     `${r.weight_lbs} lbs`,
     escapeFormula(r.zone),
     formatDollars(r.actual_net_charge),
-    formatDollars(r.predicted_net_charge_low),
-    formatDollars(r.predicted_net_charge_high),
+    formatDollars(r.charge_lower_95),
+    formatDollars(r.charge_upper_95),
     `${gap >= 0 ? '+' : ''}${formatDollars(gap)}`,
-    escapeFormula(flag),
-    escapeFormula(conf),
+    r.review_priority.toUpperCase(),
+    escapeFormula(score),
   ].join('\t');
 }
 

@@ -50,7 +50,7 @@ interface TooltipData {
   count: number;
   actualTotal: number;
   gapTotal: number;
-  unexpected: number;
+  highPriority: number;
 }
 
 interface ByStatePageProps {
@@ -152,7 +152,7 @@ export default function ByStatePage({ uploadState }: ByStatePageProps) {
                             count,
                             actualTotal: data?.actualTotal ?? 0,
                             gapTotal: data?.gapTotal ?? 0,
-                            unexpected: data?.unexpected ?? 0,
+                            highPriority: data?.highPriority ?? 0,
                           });
                         }
                       }}
@@ -196,8 +196,8 @@ export default function ByStatePage({ uploadState }: ByStatePageProps) {
                     {tooltip.gapTotal >= 0 ? '+' : ''}{formatDollars(tooltip.gapTotal)}
                   </span>
                 </p>
-                {tooltip.unexpected > 0 && (
-                  <p style={{ color: 'var(--crit)' }}>▲ UNEXPECTED {tooltip.unexpected}</p>
+                {tooltip.highPriority > 0 && (
+                  <p style={{ color: 'var(--crit)' }}>▲ HIGH {tooltip.highPriority}</p>
                 )}
               </div>
             </div>
@@ -236,7 +236,7 @@ export default function ByStatePage({ uploadState }: ByStatePageProps) {
                 <th scope="col" className="px-4 py-2 text-right">ACT.SUM</th>
                 <th scope="col" className="px-4 py-2 text-right">PRED.SUM</th>
                 <th scope="col" className="px-4 py-2 text-right">GAP</th>
-                <th scope="col" className="px-4 py-2 text-right">UNEXPECTED</th>
+                <th scope="col" className="px-4 py-2 text-right">HIGH</th>
               </tr>
             </thead>
             <tbody>
@@ -264,9 +264,9 @@ export default function ByStatePage({ uploadState }: ByStatePageProps) {
                   </td>
                   <td
                     className="px-4 py-1.5 tabular-nums text-right"
-                    style={{ color: d.unexpected > 0 ? 'var(--crit)' : 'var(--muted)' }}
+                    style={{ color: d.highPriority > 0 ? 'var(--crit)' : 'var(--muted)' }}
                   >
-                    {d.unexpected}
+                    {d.highPriority}
                   </td>
                 </tr>
               ))}

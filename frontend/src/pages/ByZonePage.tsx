@@ -63,7 +63,7 @@ export default function ByZonePage({ uploadState }: ByZonePageProps) {
                 <th scope="col" className="px-4 py-2 text-left">ZONE</th>
                 <th scope="col" className="px-4 py-2 text-right">N</th>
                 <th scope="col" className="px-4 py-2 text-right">DIM.RATE</th>
-                <th scope="col" className="px-4 py-2 text-right">UNEXPECTED</th>
+                <th scope="col" className="px-4 py-2 text-right">HIGH</th>
                 <th scope="col" className="px-4 py-2 text-right">ACT.SUM</th>
                 <th scope="col" className="px-4 py-2 text-right">PRED.SUM</th>
                 <th scope="col" className="px-4 py-2 text-right">GAP.TOTAL</th>
@@ -95,9 +95,9 @@ export default function ByZonePage({ uploadState }: ByZonePageProps) {
                   </td>
                   <td
                     className="px-4 py-1.5 tabular-nums text-right"
-                    style={{ color: zone.unexpected > 0 ? 'var(--crit)' : 'var(--muted)' }}
+                    style={{ color: zone.highPriority > 0 ? 'var(--crit)' : 'var(--muted)' }}
                   >
-                    {zone.unexpected}
+                    {zone.highPriority}
                   </td>
                   <td className="px-4 py-1.5 tabular-nums text-right">
                     {formatDollars(zone.actualTotal)}

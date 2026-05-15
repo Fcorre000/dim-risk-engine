@@ -8,71 +8,99 @@ candidates.
 ## Stack
 - Backend: FastAPI (Python 3.10) in api/
 - Frontend: React + Vite + Recharts in frontend/
-- Models: XGBoost .pkl files in models/ — DO NOT retrain these
+- Models: v2 sklearn-wrapped pickles in models/, vendored from
+  `shipping-dim-xgboost-pytorch` (do NOT retrain locally — re-vendor instead)
 
-## Model facts (critical)
-- Models trained on 57,600 real FedEx shipments (25 months, Apr 2024 – Apr 2026)
-  from a mattress manufacturer. Training repo: shipping-dim-xgboost-pytorch
-- xgb_classifier.pkl: predicts DIM flag (Y/N), input = 42 unscaled features
-  - Test metrics: Accuracy 0.9974, F1 0.9959, ROC AUC 0.9997
-- xgb_regressor.pkl: predicts net charge, output is log-space — always
-  wrap with np.expm1() before returning dollars
-  - Test metrics: MAE $3.88, RMSE $7.60, R² 0.8658
-  - Target is log-transformed (np.log1p) due to extreme skewness (23.1)
-  - Charges above $200 are excluded from training (top 0.50%, 285 rows)
-- Leakage columns NEVER in input:
-    Shipment Rated Weight (Pounds)
-    Net Charge Billed Currency
-- Pricing Zone must be normalized: '2' → '02', non-standard → 'Other'
-- Dimensions are in **centimeters** (cm), not inches — column names are
-  `Dimmed Height (cm)`, `Dimmed Width (cm)`, `Dimmed Length (cm)`
-- **Inference must convert cm → inches** before computing volume/DIM weight
-  features — the training pipeline divides by 2.54, and the FedEx DIM divisor
-  (139) is defined in cubic inches per pound
+## Model facts (critical) — v2 contract
+Three model components plus an audit-triage rollup, all gated by
+`api/predict.py::predict_shipment` (single row) or `predict_batch` (chunk).
+Schema of truth is `docs/api_contract.md` (vendored from the ML repo).
 
-## Model feature engineering (42 features)
-- Engineered from raw invoice columns, then one-hot encoded:
+1. **DIM classifier** — isotonic-calibrated XGBoost v2
+   - `models/xgb_classifier_v2_calibrated.pkl`
+   - Returns `dim_predicted` (bool), `dim_probability` (calibrated, 0–1)
+   - 105 input features; replaces the old 42-feature uncalibrated classifier
+2. **Net charge regressor** — conformal-wrapped XGBoost v2 (MAPIE SCR)
+   - `models/xgb_regressor_v2_conformal.pkl`
+   - `reg.predict_interval(X)` → `(log_point, log_interval)`; always wrap in
+     `np.expm1()` to return dollars
+   - Returns `charge_predicted`, `charge_lower_95`, `charge_upper_95`
+   - 95% prediction interval — replaces the old residual-quantile (~90%) bands
+3. **Anomaly second opinion** — IsolationForest + 105→64→16→64→105 autoencoder
+   - `models/isolation_forest.pkl`, `models/autoencoder_weights.npz`,
+     `models/scaler_v2.pkl`, `models/anomaly_threshold.json`
+   - Each detector's raw score is mapped to a percentile rank against the
+     train-time reference distribution; the two ranks are averaged
+   - Returns `anomaly_score` (0–1), `anomaly_flagged` (≥ calibrated threshold)
+   - **Autoencoder ships as a numpy .npz, NOT a .pt** — see "Autoencoder
+     numpy port" below. torch and pytorch-lightning are NOT runtime deps.
+4. **Audit triage rollup** — `review_recommended` + `review_priority`
+   - Three signals: `dim_disagrees_with_fedex`, `charge_outside_interval`,
+     `anomaly_flagged`. **`high`** ≥ 2 signals fired, **`medium`** = 1,
+     **`low`** = 0.
+
+## Feature engineering (105 features)
+- Implemented in `api/predict.py::transform_row`; mirrors the ML repo's
+  `src/02_preprocessing.py` exactly. **Do not maintain a parallel pipeline**
+  in `api/ingest.py` — that file's old `build_feature_matrix` is now dead.
+- Numeric features (unchanged from v1 conceptually): volume in inches³,
+  dim_weight_calculator (volume / 139), dim_weight_ratio, has_dimensions,
+  billable_weight, billable_weight_ceil, ship_year, ship_month,
+  months_since_start (April 2024 = 4).
+- **New in v2**: geographic features — `shipper_lat`, `shipper_lon`,
+  `recipient_lat`, `recipient_lon` (looked up from `data/zip_lookup.parquet`),
+  `origin_dest_miles` (haversine between the two), `das_type` one-hot
+  (from `data/das_zips.csv` — DAS / extended-DAS / NONE).
+- One-hot vocabularies: Service Type, Pay Type, zone_clean, Recipient
+  State/Province, das_type. Unknown categories silently zero-fill — matches
+  scikit-learn's `handle_unknown='ignore'` behaviour. **The vocabulary is
+  pinned by `models/feature_columns.json`** — never hand-edit, always re-vendor
+  after a retrain.
+
+## Anomaly logic (v2 audit triage)
+- DIM signal: `dim_disagrees_with_fedex` = `(dim_predicted ≠ FedEx flag)`.
+  Only meaningful when ground truth is supplied; otherwise `null`.
+- Cost signal: `charge_outside_interval` = `(actual < charge_lower_95 OR actual > charge_upper_95)`.
+  Only meaningful when ground truth is supplied; otherwise `null`.
+- Anomaly signal: `anomaly_flagged` = `(anomaly_score ≥ 0.95)` (Phase 4
+  calibrated threshold loaded from `models/anomaly_threshold.json`).
+- Rollup: `review_priority` is `high` if ≥ 2 fired, `medium` if exactly 1,
+  `low` otherwise. The Overview "Est. recoverable" KPI sums
+  `max(0, actual_net_charge - charge_upper_95)` over rows where
+  `review_priority !== 'low'`.
+- The old fields `dim_anomaly` / `dim_confidence` / `cost_anomaly` /
+  `cost_confidence` are **gone** (April 2026 rip-out). Frontend reads
+  `review_priority` directly and uses `anomaly_score` for the % chip in
+  the flag cell.
+
+## Autoencoder numpy port
+- The Phase 4 autoencoder was trained in PyTorch Lightning. Shipping torch
+  on Render would add ~800 MB to the image.
+- `scripts/convert_autoencoder.py` extracts the eight tensors (4× weight,
+  4× bias) from `models/autoencoder.pt` into `models/autoencoder_weights.npz`.
+  Run once locally after re-vendoring a new `.pt`:
   ```
-  height_in / width_in / length_in = cm_value / 2.54   # convert to inches first!
-  volume              = height_in * width_in * length_in
-  dim_weight_calculator = volume / 139                  # 139 = in³/lb (FedEx domestic)
-  dim_weight_ratio    = dim_weight_calculator / actual_weight
-  billable_weight     = max(actual_weight, dim_weight_calculator)
-  billable_weight_ceil = ceil(billable_weight)
-  has_dimensions      = 1 if all dims > 0, else 0
-  ship_year           = shipment_date.year
-  ship_month          = shipment_date.month
-  months_since_start  = (year - 2024) * 12 + month      # April 2024 = 4
+  python3 -m pip install --user torch --index-url https://download.pytorch.org/whl/cpu
+  python3 scripts/convert_autoencoder.py
   ```
-- One-hot encoded categoricals:
-  - Service Type: CTAG, ES, FO, MWT, ON, PO, QH, RMGR, RW, S7, S8, SG, SO, TA, XS
-  - Pay Type: Bill_Recipient, Bill_Sender_Prepaid, Bill_Third_Party, Other4
-  - Zone: 02, 03, 04, 05, 06, 07, 08, 09, 17, Other
-- Time features (ship_year, ship_month, months_since_start) capture FedEx annual
-  rate card hikes (~5–7%), monthly fuel surcharges (DOE diesel), and peak season
-  surcharges — together explain ~40% mean-charge swing across the 25-month window
-- SHAP top drivers: classification = dim_weight_ratio; regression = Original Weight,
-  zone_08/07, billable_weight, months_since_start
+- `api/anomaly.py::_autoencoder_reconstruction_error` implements the forward
+  pass in pure numpy (matmul + ReLU). Verified to reproduce torch output
+  within 1.4e-6 max abs diff (float32 rounding only).
+- Both `.pt` (source) and `.npz` (runtime artifact) live in `models/`. Render
+  loads the npz; torch is NOT in `api/requirements.txt`.
 
-## Anomaly logic
-- DIM flag anomaly: model predicts DIM=N probability > 0.6 but FedEx
-  charged DIM=Y → "Unexpected" → dispute candidate
-  - `dim_confidence` = P(DIM=N) from the classifier (e.g. 0.87 → displayed as "87%")
-- Cost anomaly: actual charge > predicted_net_charge_high (90th-percentile upper bound) → "Review"
-  - Previously was `actual > predicted * 1.25`; now uses the calibrated upper bound
-  - `cost_confidence` = severity grade computed from `(actual - predicted_high) / (predicted_high - predicted_low)`: `"Low"` (< 0.5×), `"Medium"` (0.5–1×), `"High"` (1–2×), `"Critical"` (≥ 2×)
-
-## Prediction intervals (residual-based)
-- `models/residual_quantiles.json` stores calibrated log-space residual quantiles:
-  `{"q05": -0.134852, "q95": 0.325461}` — generated once by `scripts/calibrate_residuals.py`
-- At inference time: `pred_low = expm1(log_pred + q05)`, `pred_high = expm1(log_pred + q95)`
-- These form a ~90% prediction interval for the net charge
-- `load_residual_quantiles(models_dir)` in `api/inference.py` loads this file with
-  fallback defaults so the API works even if the JSON is missing
-- Do NOT re-run calibration unless you have a new calibration dataset — the quantiles
-  are stable across the sample invoice (2,999 rows)
-- Recoverable estimate uses `actual - predicted_net_charge_high` (conservative — only
-  counts overcharge above the upper bound, not the point prediction)
+## Artifact loading & security
+- `predict._load_artifacts()` and `anomaly._load_artifacts()` are
+  `@lru_cache(maxsize=1)`. `main.py::lifespan` calls them on startup so the
+  first /analyze request doesn't pay the ~1 s pickle-load cost.
+- **Pickle security regression vs the April 2026 UBJ migration**: v2
+  artifacts (`CalibratedClassifierCV`, `MapieSplitConformalRegressor`,
+  `IsolationForest`, `StandardScaler`) wrap sklearn objects that can't be
+  serialised as native XGBoost UBJ, so we're back on `joblib.load` =
+  pickle. RCE-on-boot if an attacker can write `models/*.pkl` before the
+  process starts. Mitigation is the boundary: artifacts ship in git, deploys
+  come from CI, and the running container has read-only model paths.
+  Future hardening would be safetensors / ONNX for the unwrappable parts.
 
 ## Demo / sample data button
 - "Try sample invoice" button lives in `UploadZone` — calls `onDemoLoad` prop
@@ -97,9 +125,13 @@ candidates.
   the threadpool (SpooledTemporaryFile lifecycle is unreliable)
 - `parse_invoice_chunks()` in `api/ingest.py` yields DataFrames in
   configurable chunk sizes (default 1000 rows)
-- Leakage columns are NOT stripped in the chunker — `run_inference` reads
-  `Net Charge Billed Currency` directly; `build_feature_matrix` isolates
-  model input via `reindex(columns=FEATURE_COLS)`
+- Leakage columns stay in the chunker — `predict_batch` reads `Net Charge
+  Billed Currency` directly for audit comparison; the 105-feature model
+  input is built fresh from `transform_row` (no leakage column is ever
+  passed to the booster)
+- `run_inference(df, start_index=N)` is the only consumer of `predict_batch`
+  from streaming. `app.state.clf`/`reg`/`residual_quantiles` are GONE —
+  artifacts live behind `predict._load_artifacts()`'s lru_cache.
 - XLSX row counting uses openpyxl `read_only` mode (`ws.max_row`) so the
   frontend progress bar works for both CSV and XLSX uploads
 
@@ -121,8 +153,8 @@ candidates.
 ## Actual vs Predicted scatter plot (Overview page)
 - Replaced the old monthly bar chart with a per-shipment **ScatterChart** (Recharts)
 - X = predicted charge, Y = actual charge; diagonal y=x reference line = perfect prediction
-- Dots color-coded by anomaly: red `#f43f5e` = Unexpected, amber `#f59e0b` = Review,
-  blue `#3b82f6` = Normal
+- Dots color-coded by `review_priority`: `var(--crit)` = high, `var(--warn)` = medium,
+  `var(--accent)` = low (palette-aware, not hard-coded hex)
 - Props: receives `ShipmentResult[]` directly (not aggregated `MonthlyDataPoint[]`)
 - `computeMonthlyData()` in `lib/metrics.ts` still exists but is no longer called
   by OverviewPage — kept for potential future use
@@ -199,7 +231,7 @@ candidates.
 
 ### Key component conventions
 - **KPI cards** (`components/kpi/KpiCard.tsx`): tagged `REG.000`…`REG.003`, Space Grotesk for the big number, muted meta line below. Four cards on Overview in a 4-col grid.
-- **Tables**: `> TBL.NN · <NAME>.<MODE>` header with right-aligned meta (`ORDER.BY ... DESC`, row count, `N / TOTAL FLAGGED`). Rows `border-b` only (no vertical lines). Flag cells render inline mark + label + confidence (e.g. `▲ UNEXPECTED 87%`). Selected row uses `background: var(--row-hov)` and shows a sticky copy bar beneath.
+- **Tables**: `> TBL.NN · <NAME>.<MODE>` header with right-aligned meta (`ORDER.BY ... DESC`, row count, `N / TOTAL FLAGGED`). Rows `border-b` only (no vertical lines). Flag cells render `review_priority` as `▲ HIGH 96%` / `■ MEDIUM 73%` / `· LOW` — the % chip is the calibrated `anomaly_score`. Selected row uses `background: var(--row-hov)` and shows a sticky copy bar beneath.
 - **Charts**: pure SVG for scatter (`ActualVsPredictedChart` — W=440 H=380 P=34) and zone radar (`ZoneChart`). Recharts retained only for `TrendsChart`. Legend dots use the same flag marks.
 - **Buttons**: border + transparent bg + `var(--accent)` text with `textShadow: var(--glow)` on console-dark primary actions (e.g. `⇣ DOWNLOAD .CSV`). Hover flips to `background: var(--row-hov)`.
 - **Empty state copy**: always `NO SIGNAL — INGEST AN INVOICE ON 00 OVERVIEW` (or `INGEST AN INVOICE` on Overview itself).
@@ -221,20 +253,6 @@ The real FedEx invoice data is `2years.csv` (root dir, 57,600 rows, Apr 2024 –
   - `Shipment Tracking Number` — aliased to `Tracking Number` at parse time
   - `Pieces In Shipment` — capital I (not used by models but present in data)
 **Always cross-reference this file** when building features or displaying shipment fields.
-
-### Past bug: inference feature mismatch (cm→inches + time offset)
-`build_feature_matrix()` in `ingest.py` had two mismatches vs the training
-preprocessing (`model_resources/02_preprocessing.py`):
-1. **Missing cm→inches conversion**: Training divides dimensions by 2.54
-   before computing volume/dim_weight_calculator (because the FedEx DIM
-   divisor 139 is in³/lb). Inference was using raw cm values, inflating
-   volume by 2.54³ = 16.4×. Since dim_weight_ratio and billable_weight are
-   top SHAP features, this caused systematic ~30% overprediction on every
-   shipment with non-zero dimensions.
-2. **months_since_start offset**: Training uses `(year-2024)*12 + month`
-   (April 2024 = 4). Inference used `(year-2024)*12 + (month-4)` (April
-   2024 = 0), sending a value 4 lower than expected for every shipment.
-Both fixed 2026-04-14 in `build_feature_matrix()`.
 
 ### Past bug: fake derive* functions
 The frontend originally used `deriveDims()`, `deriveWeight()`, `deriveZone()`,

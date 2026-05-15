@@ -1,203 +1,158 @@
-import json
-import pathlib
-from typing import Optional
+"""Run v2 inference over a parsed invoice DataFrame and assemble per-row results.
+
+Wraps `predict.predict_batch` with the display-field plumbing the dashboard
+needs (tracking number, weight, dims, zone, shipment date, recipient state).
+All ML logic — calibrated classifier, conformal regressor, isolation-forest +
+autoencoder anomaly score, audit triage — lives in `predict.py`.
+"""
+
+from __future__ import annotations
 
 import pandas as pd
-import numpy as np
-import xgboost as xgb
-from ingest import build_feature_matrix, clean_zone
+
+from ingest import clean_zone
+from predict import predict_batch
 
 
-def load_residual_quantiles(models_dir: pathlib.Path) -> dict:
-    """Load pre-computed residual quantiles for prediction intervals.
+_REQUIRED_RAW_KEYS = [
+    'Original Weight (Pounds)',
+    'Dimmed Height (cm)', 'Dimmed Width (cm)', 'Dimmed Length (cm)',
+    'Pricing Zone', 'Service Type', 'Pay Type',
+    'Shipper Postal Code', 'Recipient Postal Code',
+    'Recipient State/Province', 'Invoice Month (yyyymm)',
+]
 
-    Returns dict with keys 'q05' and 'q95' (log-space residual bounds).
-    Falls back to reasonable defaults if the file is missing.
+
+def _safe_float(v, default: float = 0.0) -> float:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return default
+    return f if pd.notna(f) else default
+
+
+def _invoice_month_from_row(row: pd.Series) -> int | None:
+    """Recover the `Invoice Month (yyyymm)` int from whichever column the export carries."""
+    for col in ('Invoice Month (yyyymm)', 'Invoice Month'):
+        if col in row.index and pd.notna(row[col]):
+            try:
+                return int(float(row[col]))
+            except (TypeError, ValueError):
+                pass
+    for col in ('Shipment Date (mm/dd/yyyy)', 'Shipment Date'):
+        if col in row.index and pd.notna(row[col]):
+            ts = pd.to_datetime(row[col], errors='coerce')
+            if pd.notna(ts):
+                return int(ts.year * 100 + ts.month)
+    return None
+
+
+def _build_raw_dict(row: pd.Series) -> dict:
+    """Translate one DataFrame row into the raw dict shape predict_batch expects."""
+    return {
+        'Original Weight (Pounds)': _safe_float(row.get('Original Weight (Pounds)')),
+        'Dimmed Height (cm)': _safe_float(row.get('Dimmed Height (cm)')),
+        'Dimmed Width (cm)': _safe_float(row.get('Dimmed Width (cm)')),
+        'Dimmed Length (cm)': _safe_float(row.get('Dimmed Length (cm)')),
+        'Pricing Zone': row.get('Pricing Zone'),
+        'Service Type': row.get('Service Type'),
+        'Pay Type': row.get('Pay Type'),
+        'Shipper Postal Code': row.get('Shipper Postal Code', ''),
+        'Recipient Postal Code': row.get('Recipient Postal Code', ''),
+        'Recipient State/Province': _extract_state_from_row(row),
+        'Invoice Month (yyyymm)': _invoice_month_from_row(row),
+        # Optional audit-comparison fields — None when absent
+        'Shipment DIM Flag (Y or N)': row.get('Shipment DIM Flag (Y or N)'),
+        'Net Charge Billed Currency': _safe_float(row.get('Net Charge Billed Currency'), default=None) if pd.notna(row.get('Net Charge Billed Currency')) else None,
+    }
+
+
+def _extract_state_from_row(row: pd.Series) -> str | None:
+    """Recipient state with column-shift fallback.
+
+    FedEx exports sometimes shift address→city→state→country, putting the city
+    name in the state column and the actual 2-letter state code in the country
+    column. Try state first, fall back to country if state isn't a 2-letter
+    alpha code.
     """
-    path = models_dir / "residual_quantiles.json"
-    if path.exists():
-        return json.loads(path.read_text())
-    # Fallback — conservative defaults if calibration hasn't been run
-    return {"q05": -0.15, "q95": 0.35}
+    s = row.get('Recipient State/Province')
+    if pd.notna(s):
+        v = str(s).strip().upper()
+        if len(v) == 2 and v.isalpha():
+            return v
+    c = row.get('Recipient Country/Territory')
+    if pd.notna(c):
+        v = str(c).strip().upper()
+        if len(v) == 2 and v.isalpha() and v != 'US':
+            return v
+    return None
 
 
-def _cost_confidence(actual: float, pred_high: float, pred_low: float) -> str:
-    """Grade cost anomaly severity by how far actual exceeds the CI upper bound.
-
-    Uses overage as a multiple of the CI width:
-      < 0.5x  → "Low"
-      0.5–1x  → "Medium"
-      1–2x    → "High"
-      ≥ 2x    → "Critical"
-    """
-    ci_width = max(pred_high - pred_low, 1e-6)  # guard against zero-width CI
-    multiple = (actual - pred_high) / ci_width
-    if multiple < 0.5:
-        return "Low"
-    if multiple < 1.0:
-        return "Medium"
-    if multiple < 2.0:
-        return "High"
-    return "Critical"
+def _extract_shipment_date(row: pd.Series) -> str | None:
+    for col in ('Shipment Date (mm/dd/yyyy)', 'Shipment Date'):
+        if col in row.index and pd.notna(row[col]):
+            ts = pd.to_datetime(row[col], errors='coerce')
+            if pd.notna(ts):
+                return ts.strftime('%Y-%m-%d')
+    return None
 
 
-def apply_anomaly_flags(
-    dim_proba_y: np.ndarray,
-    fedex_dim_flags: pd.Series,
-    actual_charges: pd.Series,
-    predicted_charges: np.ndarray,
-    predicted_high: np.ndarray,
-    predicted_low: np.ndarray = None,
-) -> list:
-    """Apply DIM and cost anomaly logic with confidence scores.
+def run_inference(df: pd.DataFrame, start_index: int = 0) -> list[dict]:
+    """Score a chunk of parsed invoice rows and return per-row result dicts.
 
     Args:
-        dim_proba_y: Array of P(DIM=Y) values, one per shipment.
-        fedex_dim_flags: Series of raw FedEx DIM flag values ("Y" or "N").
-        actual_charges: Series of actual net charge amounts in dollars.
-        predicted_charges: Array of predicted net charge amounts in dollars.
-        predicted_high: Array of 95th percentile upper bounds in dollars.
-        predicted_low: Array of 5th percentile lower bounds in dollars (for CI width).
+        df: Parsed invoice DataFrame (from parse_invoice or parse_invoice_chunks).
+        start_index: Offset for the per-row `row_index` field. Streaming callers
+            pass a running total across chunks so every result has a globally
+            unique id (used as a stable React key on the frontend — tracking
+            numbers can be null or duplicate in real FedEx exports).
 
     Returns:
-        List of dicts with keys:
-        - dim_anomaly: "Unexpected" if P(DIM=N) > 0.6 AND FedEx flagged DIM=Y; else None
-        - dim_confidence: P(DIM=N) when dim_anomaly is set, else None
-        - cost_anomaly: "Review" if actual charge > predicted_high; else None
-        - cost_confidence: "Low"/"Medium"/"High"/"Critical" graded by overage/CI-width; else None
+        List of dicts matching the ShipmentResult Pydantic model in main.py.
+        Schema version: v2 (calibrated + conformal + anomaly fusion).
     """
-    dim_proba_n = 1.0 - dim_proba_y
-    fedex_dim = fedex_dim_flags.str.upper().str.strip()
+    if len(df) == 0:
+        return []
 
-    flags = []
-    for i in range(len(dim_proba_y)):
-        is_dim_anomaly = dim_proba_n[i] > 0.6 and fedex_dim.iloc[i] == "Y"
-        is_cost_anomaly = actual_charges.iloc[i] > predicted_high[i]
+    raw_rows = [_build_raw_dict(df.iloc[i]) for i in range(len(df))]
+    predictions = predict_batch(raw_rows)
 
-        if is_cost_anomaly and predicted_low is not None:
-            confidence = _cost_confidence(
-                float(actual_charges.iloc[i]),
-                float(predicted_high[i]),
-                float(predicted_low[i]),
-            )
-        elif is_cost_anomaly:
-            confidence = "High"  # fallback when pred_low not provided
-        else:
-            confidence = None
-
-        flags.append({
-            "dim_anomaly": "Unexpected" if is_dim_anomaly else None,
-            "dim_confidence": round(float(dim_proba_n[i]), 4) if is_dim_anomaly else None,
-            "cost_anomaly": "Review" if is_cost_anomaly else None,
-            "cost_confidence": confidence,
-        })
-
-    return flags
-
-
-def run_inference(df: pd.DataFrame, clf, reg, residual_quantiles: Optional[dict] = None, start_index: int = 0) -> list:
-    """Run both XGBoost models on invoice DataFrame, apply anomaly logic, return results.
-
-    Args:
-        df: Raw invoice DataFrame (with Tracking Number, DIM Flag, Net Charge columns).
-        clf: Loaded xgb_classifier (from app.state.clf). Predicts DIM flag probability.
-        reg: Loaded xgb_regressor (from app.state.reg). Predicts net charge in log-space.
-        residual_quantiles: Dict with 'q05' and 'q95' keys (log-space residual bounds).
-        start_index: Offset for the per-row `row_index` field. Streaming callers pass
-            a running total across chunks so every result has a globally unique id
-            (used as a stable React key on the frontend — tracking numbers can be
-            null/duplicate in real FedEx exports).
-
-    Returns:
-        List of dicts with shipment data, predictions, intervals, and anomaly flags.
-    """
-    if residual_quantiles is None:
-        residual_quantiles = {"q05": -0.15, "q95": 0.35}
-
-    q05 = residual_quantiles["q05"]
-    q95 = residual_quantiles["q95"]
-
-    X = build_feature_matrix(df)
-    dmat = xgb.DMatrix(X)
-
-    # Classifier: binary:logistic Booster.predict returns P(DIM=Y) directly — same
-    # as the second column of sklearn's predict_proba. Raw Booster avoids the
-    # sklearn wrapper (and its pickle attack surface).
-    dim_proba_y = clf.predict(dmat)
-
-    # Regressor: log-space -> dollars via expm1
-    log_preds = reg.predict(dmat)
-    predicted_charge = np.expm1(log_preds)
-
-    # Prediction intervals: shift log-space predictions by calibrated residual quantiles
-    pred_low = np.expm1(log_preds + q05)
-    pred_high = np.expm1(log_preds + q95)
-
-    # Raw columns for anomaly logic (NOT model features — not passed to build_feature_matrix)
-    fedex_dim_flags = df["Shipment DIM Flag (Y or N)"]
-    actual_charges = pd.to_numeric(df["Net Charge Billed Currency"], errors="coerce").fillna(0)
-
-    # Shipment date — optional, present in full XLSX exports but not all CSVs
-    date_col = None
-    for col_name in ("Shipment Date (mm/dd/yyyy)", "Shipment Date"):
-        if col_name in df.columns:
-            date_col = col_name
-            break
-    shipment_dates = pd.to_datetime(df[date_col], errors="coerce") if date_col else None
-
-    # Recipient state — with column-shift fallback
-    # FedEx exports sometimes shift address→city→state→country, putting the city name
-    # in the state column and the actual 2-letter state code in the country column.
-    state_col = "Recipient State/Province"
-    country_col = "Recipient Country/Territory"
-    has_state_col = state_col in df.columns
-    has_country_col = country_col in df.columns
-
-    def _extract_state(row_idx):
-        if has_state_col:
-            val = str(df[state_col].iloc[row_idx]).strip().upper()
-            if len(val) == 2 and val.isalpha():
-                return val
-        # Fallback: column-shift puts state code in country field
-        if has_country_col:
-            val = str(df[country_col].iloc[row_idx]).strip().upper()
-            if len(val) == 2 and val.isalpha() and val != "US":
-                return val
-        return None
-
-    # Apply anomaly flags (now uses pred_high for cost anomaly threshold)
-    anomaly_flags = apply_anomaly_flags(
-        dim_proba_y, fedex_dim_flags, actual_charges, predicted_charge, pred_high, pred_low
-    )
-
-    # Build result list
-    results = []
+    results: list[dict] = []
     for i in range(len(df)):
-        # Tracking number can be missing in real FedEx exports — keep as None rather than
-        # serializing NaN as the string "nan", which would (a) display literally in the UI
-        # and (b) collide as a React key for every NaN row, breaking sort/reconciliation.
-        tn_raw = df["Tracking Number"].iloc[i]
-        tracking_number = str(tn_raw) if pd.notna(tn_raw) else None
-        results.append({
-            "row_index": start_index + i,
-            "tracking_number": tracking_number,
-            "service_type": str(df["Service Type"].iloc[i]),
-            "weight_lbs": round(float(pd.to_numeric(df["Original Weight (Pounds)"].iloc[i], errors="coerce") or 0), 1),
-            "dim_length": round(float(pd.to_numeric(df["Dimmed Length (cm)"].iloc[i], errors="coerce") or 0), 1),
-            "dim_width": round(float(pd.to_numeric(df["Dimmed Width (cm)"].iloc[i], errors="coerce") or 0), 1),
-            "dim_height": round(float(pd.to_numeric(df["Dimmed Height (cm)"].iloc[i], errors="coerce") or 0), 1),
-            "zone": clean_zone(df["Pricing Zone"].iloc[i]),
-            "shipment_date": shipment_dates.iloc[i].strftime("%Y-%m-%d") if shipment_dates is not None and pd.notna(shipment_dates.iloc[i]) else None,
-            "recipient_state": _extract_state(i),
-            "dim_flag_probability": round(float(dim_proba_y[i]), 4),
-            "actual_net_charge": round(float(actual_charges.iloc[i]), 2),
-            "predicted_net_charge": round(float(predicted_charge[i]), 2),
-            "predicted_net_charge_low": round(float(pred_low[i]), 2),
-            "predicted_net_charge_high": round(float(pred_high[i]), 2),
-            "dim_anomaly": anomaly_flags[i]["dim_anomaly"],
-            "dim_confidence": anomaly_flags[i]["dim_confidence"],
-            "cost_anomaly": anomaly_flags[i]["cost_anomaly"],
-            "cost_confidence": anomaly_flags[i]["cost_confidence"],
-        })
+        row = df.iloc[i]
+        p = predictions[i]
 
+        # Tracking number can be missing in real FedEx exports — keep as None
+        # rather than serializing NaN as the string "nan", which would (a) display
+        # literally in the UI and (b) collide as a React key for every NaN row,
+        # breaking sort/reconciliation.
+        tn_raw = row.get('Tracking Number')
+        tracking_number = str(tn_raw) if pd.notna(tn_raw) else None
+
+        results.append({
+            # Display fields (sourced from the raw invoice, not the model)
+            'row_index': start_index + i,
+            'tracking_number': tracking_number,
+            'service_type': str(row.get('Service Type', '')),
+            'weight_lbs': round(_safe_float(row.get('Original Weight (Pounds)')), 1),
+            'dim_length': round(_safe_float(row.get('Dimmed Length (cm)')), 1),
+            'dim_width': round(_safe_float(row.get('Dimmed Width (cm)')), 1),
+            'dim_height': round(_safe_float(row.get('Dimmed Height (cm)')), 1),
+            'zone': clean_zone(row.get('Pricing Zone')),
+            'shipment_date': _extract_shipment_date(row),
+            'recipient_state': _extract_state_from_row(row),
+
+            # Model outputs (v2 contract — see docs/api_contract.md)
+            'dim_probability': round(p['dim_probability'], 4),
+            'dim_disagrees_with_fedex': p['dim_disagrees_with_fedex'],
+            'actual_net_charge': round(p['charge_actual'], 2) if p['charge_actual'] is not None else 0.0,
+            'charge_predicted': round(p['charge_predicted'], 2),
+            'charge_lower_95': round(p['charge_lower_95'], 2),
+            'charge_upper_95': round(p['charge_upper_95'], 2),
+            'charge_outside_interval': p['charge_outside_interval'],
+            'anomaly_score': round(p['anomaly_score'], 4) if p['anomaly_score'] is not None else None,
+            'anomaly_flagged': p['anomaly_flagged'],
+            'review_recommended': p['review_recommended'],
+            'review_priority': p['review_priority'],
+        })
     return results

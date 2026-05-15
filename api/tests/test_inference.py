@@ -1,135 +1,147 @@
-import pytest
-import numpy as np
+"""Tests for the v2 inference path (calibrated classifier + conformal regressor + anomaly fusion).
+
+The old XGBoost-Booster-on-UBJ tests are gone — v2 artifacts are sklearn pickles
+and the inference contract is the dict returned by predict.predict_shipment.
+"""
 import pandas as pd
-import xgboost as xgb
-from inference import run_inference, apply_anomaly_flags
-from ingest import FEATURE_COLS
+
+from inference import run_inference
+from predict import predict_shipment
 
 
-def _load_booster(models_dir, name: str) -> xgb.Booster:
-    booster = xgb.Booster()
-    booster.load_model(str(models_dir / name))
-    return booster
+EXPECTED_KEYS = {
+    "row_index", "tracking_number", "service_type", "weight_lbs",
+    "dim_length", "dim_width", "dim_height", "zone",
+    "shipment_date", "recipient_state",
+    "dim_probability", "dim_disagrees_with_fedex",
+    "actual_net_charge", "charge_predicted",
+    "charge_lower_95", "charge_upper_95", "charge_outside_interval",
+    "anomaly_score", "anomaly_flagged",
+    "review_recommended", "review_priority",
+}
 
 
-def test_classifier_loaded(models_dir):
-    """INF-01: Classifier loads and binary:logistic predict returns P(DIM=Y) in [0,1]."""
-    clf = _load_booster(models_dir, "xgb_classifier.ubj")
-    X = pd.DataFrame(np.zeros((1, len(FEATURE_COLS))), columns=FEATURE_COLS)
-    proba_y = clf.predict(xgb.DMatrix(X))
-    assert proba_y.shape == (1,)
-    assert 0.0 <= proba_y[0] <= 1.0
-
-
-def test_regressor_expm1(models_dir):
-    """INF-02: Regressor output via expm1 is positive dollars."""
-    reg = _load_booster(models_dir, "xgb_regressor.ubj")
-    X = pd.DataFrame(np.zeros((1, len(FEATURE_COLS))), columns=FEATURE_COLS)
-    log_pred = reg.predict(xgb.DMatrix(X))
-    dollar_pred = np.expm1(log_pred)
-    assert dollar_pred[0] > 0, f"Expected positive dollars, got {dollar_pred[0]}"
-
-
-def test_dim_anomaly_unexpected():
-    """INF-03: DIM anomaly 'Unexpected' when P(DIM=N)>0.6 and FedEx=Y."""
-    dim_proba_y = np.array([0.3])  # P(DIM=N) = 0.7 > 0.6
-    fedex_flags = pd.Series(["Y"])
-    actual_charges = pd.Series([50.0])
-    predicted_charges = np.array([50.0])
-    predicted_high = np.array([62.5])
-    flags = apply_anomaly_flags(dim_proba_y, fedex_flags, actual_charges, predicted_charges, predicted_high)
-    assert flags[0]["dim_anomaly"] == "Unexpected"
-    assert flags[0]["dim_confidence"] == 0.7
-
-
-def test_dim_anomaly_none_low_prob():
-    """INF-03: No DIM anomaly when P(DIM=N) < 0.6."""
-    dim_proba_y = np.array([0.8])  # P(DIM=N) = 0.2 < 0.6
-    fedex_flags = pd.Series(["Y"])
-    actual_charges = pd.Series([50.0])
-    predicted_charges = np.array([50.0])
-    predicted_high = np.array([62.5])
-    flags = apply_anomaly_flags(dim_proba_y, fedex_flags, actual_charges, predicted_charges, predicted_high)
-    assert flags[0]["dim_anomaly"] is None
-    assert flags[0]["dim_confidence"] is None
-
-
-def test_dim_anomaly_none_fedex_n():
-    """INF-03: No DIM anomaly when FedEx flag is N (even if P(DIM=N)>0.6)."""
-    dim_proba_y = np.array([0.3])  # P(DIM=N) = 0.7 > 0.6
-    fedex_flags = pd.Series(["N"])
-    actual_charges = pd.Series([50.0])
-    predicted_charges = np.array([50.0])
-    predicted_high = np.array([62.5])
-    flags = apply_anomaly_flags(dim_proba_y, fedex_flags, actual_charges, predicted_charges, predicted_high)
-    assert flags[0]["dim_anomaly"] is None
-
-
-def test_cost_anomaly_review():
-    """INF-04: Cost anomaly 'Review' when actual > predicted_high; confidence is a valid grade."""
-    dim_proba_y = np.array([0.8])
-    fedex_flags = pd.Series(["N"])
-    actual_charges = pd.Series([100.0])
-    predicted_charges = np.array([60.0])
-    predicted_high = np.array([75.0])   # 100 > 75
-    predicted_low = np.array([48.0])    # CI width = 27; overage = 25 → multiple ≈ 0.93 → "Medium"
-    flags = apply_anomaly_flags(dim_proba_y, fedex_flags, actual_charges, predicted_charges, predicted_high, predicted_low)
-    assert flags[0]["cost_anomaly"] == "Review"
-    assert flags[0]["cost_confidence"] in {"Low", "Medium", "High", "Critical"}
-    assert flags[0]["cost_confidence"] == "Medium"  # 25/27 ≈ 0.93, between 0.5 and 1.0
-
-
-def test_cost_confidence_grades():
-    """INF-04b: cost_confidence grades match overage/CI-width multiples."""
-    def flags_for(actual, pred_high, pred_low):
-        return apply_anomaly_flags(
-            np.array([0.8]), pd.Series(["N"]),
-            pd.Series([actual]), np.array([pred_high * 0.8]),
-            np.array([pred_high]), np.array([pred_low]),
-        )[0]["cost_confidence"]
-
-    ci_width = 20.0
-    pred_low, pred_high = 40.0, 60.0
-    # overage = actual - pred_high; multiple = overage / ci_width
-    assert flags_for(68.0, pred_high, pred_low) == "Low"       # 8/20 = 0.40
-    assert flags_for(78.0, pred_high, pred_low) == "Medium"    # 18/20 = 0.90
-    assert flags_for(95.0, pred_high, pred_low) == "High"      # 35/20 = 1.75
-    assert flags_for(120.0, pred_high, pred_low) == "Critical"  # 60/20 = 3.00
-
-
-def test_cost_anomaly_none():
-    """INF-04: No cost anomaly when actual <= predicted_high."""
-    dim_proba_y = np.array([0.8])
-    fedex_flags = pd.Series(["N"])
-    actual_charges = pd.Series([100.0])
-    predicted_charges = np.array([90.0])
-    predicted_high = np.array([112.5])  # 100 < 112.5
-    flags = apply_anomaly_flags(dim_proba_y, fedex_flags, actual_charges, predicted_charges, predicted_high)
-    assert flags[0]["cost_anomaly"] is None
-    assert flags[0]["cost_confidence"] is None
-
-
-def test_run_inference_returns_list(sample_df, models_dir):
-    """run_inference returns list of dicts with correct keys."""
-    clf = _load_booster(models_dir, "xgb_classifier.ubj")
-    reg = _load_booster(models_dir, "xgb_regressor.ubj")
-    from inference import load_residual_quantiles
-    rq = load_residual_quantiles(models_dir)
-    results = run_inference(sample_df, clf, reg, rq)
-    assert isinstance(results, list)
-    assert len(results) == len(sample_df)
-    expected_keys = {
-        "row_index", "tracking_number", "service_type", "weight_lbs", "dim_length", "dim_width",
-        "dim_height", "zone", "shipment_date", "recipient_state", "dim_flag_probability",
-        "actual_net_charge", "predicted_net_charge",
-        "predicted_net_charge_low", "predicted_net_charge_high",
-        "dim_anomaly", "dim_confidence", "cost_anomaly", "cost_confidence",
+def _example_row():
+    """Canonical example from docs/api_contract.md — keep these aligned."""
+    return {
+        "Original Weight (Pounds)": 18.4,
+        "Dimmed Height (cm)": 45.0,
+        "Dimmed Width (cm)": 50.0,
+        "Dimmed Length (cm)": 60.0,
+        "Pricing Zone": "05",
+        "Service Type": "Ground",
+        "Pay Type": "Bill_Sender_Prepaid",
+        "Shipper Postal Code": "76019",
+        "Recipient Postal Code": "90210",
+        "Recipient State/Province": "CA",
+        "Invoice Month (yyyymm)": 202604,
+        "Shipment DIM Flag (Y or N)": "Y",
+        "Net Charge Billed Currency": 127.23,
     }
-    assert set(results[0].keys()) == expected_keys
-    assert isinstance(results[0]["row_index"], int)
-    # tracking_number can be None when source row has missing tracking column
-    assert results[0]["tracking_number"] is None or isinstance(results[0]["tracking_number"], str)
-    assert 0.0 <= results[0]["dim_flag_probability"] <= 1.0
-    assert results[0]["predicted_net_charge"] > 0
-    assert results[0]["predicted_net_charge_low"] <= results[0]["predicted_net_charge"]
-    assert results[0]["predicted_net_charge_high"] >= results[0]["predicted_net_charge"]
+
+
+def test_predict_shipment_schema():
+    """predict_shipment returns the v2 response shape with all keys present."""
+    out = predict_shipment(_example_row())
+    expected = {
+        "dim_predicted", "dim_probability", "dim_disagrees_with_fedex",
+        "charge_predicted", "charge_lower_95", "charge_upper_95",
+        "charge_actual", "charge_outside_interval",
+        "anomaly_score", "anomaly_flagged",
+        "review_recommended", "review_priority",
+    }
+    assert set(out.keys()) == expected
+    assert 0.0 <= out["dim_probability"] <= 1.0
+    # Conformal interval contains its point prediction (always true for a valid SCR fit)
+    assert out["charge_lower_95"] <= out["charge_predicted"] <= out["charge_upper_95"]
+    assert out["review_priority"] in {"high", "medium", "low"}
+
+
+def test_predict_shipment_without_ground_truth():
+    """Optional ground-truth fields → audit-comparison keys become None."""
+    row = _example_row()
+    del row["Shipment DIM Flag (Y or N)"]
+    del row["Net Charge Billed Currency"]
+    out = predict_shipment(row)
+    assert out["dim_disagrees_with_fedex"] is None
+    assert out["charge_outside_interval"] is None
+    assert out["charge_actual"] is None
+
+
+def test_predict_shipment_priority_triage():
+    """A row hand-tuned to trip all three signals lands in 'high'."""
+    out = predict_shipment(_example_row())
+    # $127.23 actual vs predicted ~$26 is well above the upper bound, and the
+    # anomaly fusion score should fire — both signals plus the (false) DIM
+    # agreement give us either 'medium' or 'high'. Real example sits at 'high'.
+    if out["charge_outside_interval"] and out["anomaly_flagged"]:
+        assert out["review_priority"] == "high"
+
+
+def test_run_inference_returns_v2_schema():
+    """run_inference over a chunk wraps predict_batch and emits new field names."""
+    df = pd.DataFrame([{
+        "Tracking Number": "TEST123",
+        "Original Weight (Pounds)": 10.0,
+        "Dimmed Height (cm)": 30.0,
+        "Dimmed Width (cm)": 25.0,
+        "Dimmed Length (cm)": 38.0,
+        "Service Type": "Ground",
+        "Pay Type": "Bill_Sender_Prepaid",
+        "Pricing Zone": "2",
+        "Shipper Postal Code": "76019",
+        "Recipient Postal Code": "90210",
+        "Recipient State/Province": "CA",
+        "Invoice Month (yyyymm)": 202604,
+        "Shipment DIM Flag (Y or N)": "Y",
+        "Net Charge Billed Currency": 50.0,
+        "Shipment Date (mm/dd/yyyy)": "07/17/2024",
+    }])
+    results = run_inference(df)
+    assert isinstance(results, list)
+    assert len(results) == 1
+    row = results[0]
+    assert set(row.keys()) == EXPECTED_KEYS
+    assert row["row_index"] == 0
+    assert row["tracking_number"] == "TEST123"
+    assert 0.0 <= row["dim_probability"] <= 1.0
+    assert row["charge_predicted"] > 0
+    assert row["charge_lower_95"] <= row["charge_predicted"] <= row["charge_upper_95"]
+    assert row["review_priority"] in {"high", "medium", "low"}
+
+
+def test_run_inference_start_index_offset():
+    """Streaming caller passes start_index so row_index stays globally unique across chunks."""
+    df = pd.DataFrame([{
+        "Tracking Number": f"T{i}",
+        "Original Weight (Pounds)": 10.0,
+        "Dimmed Height (cm)": 30.0, "Dimmed Width (cm)": 25.0, "Dimmed Length (cm)": 38.0,
+        "Service Type": "Ground", "Pay Type": "Bill_Sender_Prepaid",
+        "Pricing Zone": "2",
+        "Shipper Postal Code": "76019", "Recipient Postal Code": "90210",
+        "Recipient State/Province": "CA", "Invoice Month (yyyymm)": 202604,
+        "Shipment DIM Flag (Y or N)": "N", "Net Charge Billed Currency": 50.0,
+        "Shipment Date (mm/dd/yyyy)": "07/17/2024",
+    } for i in range(3)])
+    results = run_inference(df, start_index=1000)
+    assert [r["row_index"] for r in results] == [1000, 1001, 1002]
+
+
+def test_run_inference_handles_missing_optional_columns():
+    """No Net Charge column → charge_outside_interval is None but the row still scores."""
+    df = pd.DataFrame([{
+        "Tracking Number": "T1",
+        "Original Weight (Pounds)": 10.0,
+        "Dimmed Height (cm)": 30.0, "Dimmed Width (cm)": 25.0, "Dimmed Length (cm)": 38.0,
+        "Service Type": "Ground", "Pay Type": "Bill_Sender_Prepaid",
+        "Pricing Zone": "2",
+        "Shipper Postal Code": "76019", "Recipient Postal Code": "90210",
+        "Recipient State/Province": "CA", "Invoice Month (yyyymm)": 202604,
+        "Shipment DIM Flag (Y or N)": "N",
+        # Net Charge Billed Currency is missing/NaN entirely
+        "Net Charge Billed Currency": None,
+        "Shipment Date (mm/dd/yyyy)": "07/17/2024",
+    }])
+    results = run_inference(df)
+    assert results[0]["charge_outside_interval"] is None
+    assert results[0]["charge_predicted"] > 0

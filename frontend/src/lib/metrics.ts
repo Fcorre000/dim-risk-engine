@@ -2,10 +2,10 @@ import type { ShipmentResult } from '../types/api';
 
 export interface KpiData {
   totalShipments: number;
-  dimFlaggedCount: number;      // shipments where dim_flag_probability > 0.5
+  dimFlaggedCount: number;      // shipments where dim_probability > 0.5
   dimFlaggedPercent: number;    // percentage, 0-100, rounded to 1 decimal
-  disputeCandidates: number;    // shipments where dim_anomaly === 'Unexpected'
-  estRecoverable: number;       // estimated recoverable dollars
+  disputeCandidates: number;    // shipments where review_priority === 'high'
+  estRecoverable: number;       // sum of max(0, actual - charge_upper_95) over high+medium rows
 }
 
 export interface ZoneDataPoint {
@@ -32,18 +32,19 @@ export function computeKpis(results: ShipmentResult[]): KpiData {
 
   const totalShipments = results.length;
 
-  // DIM-flagged: model probability > 0.5
-  const dimFlaggedCount = results.filter((r) => r.dim_flag_probability > 0.5).length;
+  // DIM-flagged: model calibrated probability > 0.5
+  const dimFlaggedCount = results.filter((r) => r.dim_probability > 0.5).length;
   const dimFlaggedPercent = parseFloat(((dimFlaggedCount / totalShipments) * 100).toFixed(1));
 
-  // Dispute candidates: rows where DIM anomaly is Unexpected
-  const disputeCandidates = results.filter((r) => r.dim_anomaly === 'Unexpected').length;
+  // Dispute candidates: rows the audit triage marked 'high' priority (2+ signals fired)
+  const disputeCandidates = results.filter((r) => r.review_priority === 'high').length;
 
-  // Recoverable: for Unexpected DIM rows, gap = actual billed - upper prediction bound
-  // Using predicted_net_charge_high gives a more conservative (credible) estimate
+  // Recoverable: sum the overage above the 95% upper bound, but only on rows the
+  // triage actually flagged for review (high or medium). Conservative — only the
+  // portion above the upper bound counts, not the gap to the point prediction.
   const estRecoverable = results
-    .filter((r) => r.dim_anomaly === 'Unexpected')
-    .reduce((sum, r) => sum + Math.max(0, r.actual_net_charge - r.predicted_net_charge_high), 0);
+    .filter((r) => r.review_priority !== 'low')
+    .reduce((sum, r) => sum + Math.max(0, r.actual_net_charge - r.charge_upper_95), 0);
 
   return {
     totalShipments,
@@ -67,7 +68,7 @@ export function computeZoneData(results: ShipmentResult[]): ZoneDataPoint[] {
     const zone = r.zone;
     if (!zoneMap[zone]) zoneMap[zone] = { total: 0, dimFlagged: 0 };
     zoneMap[zone].total += 1;
-    if (r.dim_flag_probability > 0.5) zoneMap[zone].dimFlagged += 1;
+    if (r.dim_probability > 0.5) zoneMap[zone].dimFlagged += 1;
   }
 
   return Object.entries(zoneMap)
@@ -95,7 +96,7 @@ export function formatDollars(value: number): string {
 export interface MonthlyDataPoint {
   month: string;      // "Jan 2022", "Feb 2022", etc. (or "Unknown" if no date)
   actual: number;     // sum of actual_net_charge from invoice
-  predicted: number;  // sum of predicted_net_charge from model
+  predicted: number;  // sum of charge_predicted from model
   gap: number;        // actual - predicted
 }
 
@@ -134,7 +135,7 @@ export function computeMonthlyData(results: ShipmentResult[]): MonthlyDataPoint[
     const month = getMonthKey(r.shipment_date) ?? 'Unknown';
     if (!buckets[month]) buckets[month] = { actual: 0, predicted: 0 };
     buckets[month].actual += r.actual_net_charge;
-    buckets[month].predicted += r.predicted_net_charge;
+    buckets[month].predicted += r.charge_predicted;
   }
 
   return Object.entries(buckets)
@@ -158,7 +159,7 @@ export interface ZoneDetailPoint {
   actualTotal: number;
   predictedTotal: number;
   gapTotal: number;
-  unexpected: number;
+  highPriority: number;      // count of review_priority === 'high'
 }
 
 /**
@@ -174,20 +175,20 @@ export function computeZoneDetails(results: ShipmentResult[]): ZoneDetailPoint[]
     dimFlagged: number;
     actual: number;
     predicted: number;
-    unexpected: number;
+    highPriority: number;
   }> = {};
 
   for (const r of results) {
     const zone = r.zone;
 
     if (!zoneMap[zone]) {
-      zoneMap[zone] = { total: 0, dimFlagged: 0, actual: 0, predicted: 0, unexpected: 0 };
+      zoneMap[zone] = { total: 0, dimFlagged: 0, actual: 0, predicted: 0, highPriority: 0 };
     }
     zoneMap[zone].total += 1;
-    if (r.dim_flag_probability > 0.5) zoneMap[zone].dimFlagged += 1;
+    if (r.dim_probability > 0.5) zoneMap[zone].dimFlagged += 1;
     zoneMap[zone].actual += r.actual_net_charge;
-    zoneMap[zone].predicted += r.predicted_net_charge;
-    if (r.dim_anomaly === 'Unexpected') zoneMap[zone].unexpected += 1;
+    zoneMap[zone].predicted += r.charge_predicted;
+    if (r.review_priority === 'high') zoneMap[zone].highPriority += 1;
   }
 
   return Object.entries(zoneMap)
@@ -198,7 +199,7 @@ export function computeZoneDetails(results: ShipmentResult[]): ZoneDetailPoint[]
       actualTotal: parseFloat(d.actual.toFixed(2)),
       predictedTotal: parseFloat(d.predicted.toFixed(2)),
       gapTotal: parseFloat((d.actual - d.predicted).toFixed(2)),
-      unexpected: d.unexpected,
+      highPriority: d.highPriority,
     }))
     .sort((a, b) => b.gapTotal - a.gapTotal);
 }
@@ -208,15 +209,14 @@ export interface SkuDataPoint {
   service: string;
   count: number;
   dimFlagged: number;
-  unexpected: number;
-  review: number;
+  highPriority: number;
+  mediumPriority: number;
   actualTotal: number;
   gapTotal: number;
 }
 
 /**
- * Aggregate shipment results by FedEx service type (SKU).
- * Service type derived from last digit of tracking number.
+ * Aggregate shipment results by FedEx service type.
  * Returns array sorted by gapTotal descending.
  */
 export function computeSkuData(results: ShipmentResult[]): SkuDataPoint[] {
@@ -225,8 +225,8 @@ export function computeSkuData(results: ShipmentResult[]): SkuDataPoint[] {
   const skuMap: Record<string, {
     count: number;
     dimFlagged: number;
-    unexpected: number;
-    review: number;
+    high: number;
+    medium: number;
     actual: number;
     gap: number;
   }> = {};
@@ -234,14 +234,14 @@ export function computeSkuData(results: ShipmentResult[]): SkuDataPoint[] {
   for (const r of results) {
     const service = r.service_type;
     if (!skuMap[service]) {
-      skuMap[service] = { count: 0, dimFlagged: 0, unexpected: 0, review: 0, actual: 0, gap: 0 };
+      skuMap[service] = { count: 0, dimFlagged: 0, high: 0, medium: 0, actual: 0, gap: 0 };
     }
     skuMap[service].count += 1;
-    if (r.dim_flag_probability > 0.5) skuMap[service].dimFlagged += 1;
-    if (r.dim_anomaly === 'Unexpected') skuMap[service].unexpected += 1;
-    if (r.cost_anomaly === 'Review') skuMap[service].review += 1;
+    if (r.dim_probability > 0.5) skuMap[service].dimFlagged += 1;
+    if (r.review_priority === 'high') skuMap[service].high += 1;
+    if (r.review_priority === 'medium') skuMap[service].medium += 1;
     skuMap[service].actual += r.actual_net_charge;
-    skuMap[service].gap += r.actual_net_charge - r.predicted_net_charge;
+    skuMap[service].gap += r.actual_net_charge - r.charge_predicted;
   }
 
   return Object.entries(skuMap)
@@ -249,8 +249,8 @@ export function computeSkuData(results: ShipmentResult[]): SkuDataPoint[] {
       service,
       count: d.count,
       dimFlagged: d.dimFlagged,
-      unexpected: d.unexpected,
-      review: d.review,
+      highPriority: d.high,
+      mediumPriority: d.medium,
       actualTotal: parseFloat(d.actual.toFixed(2)),
       gapTotal: parseFloat(d.gap.toFixed(2)),
     }))
@@ -263,26 +263,26 @@ export interface StateDataPoint {
   actualTotal: number;
   predictedTotal: number;
   gapTotal: number;
-  unexpected: number;
+  highPriority: number;
 }
 
 export function computeStateData(results: ShipmentResult[]): StateDataPoint[] {
   if (results.length === 0) return [];
 
   const stateMap: Record<string, {
-    count: number; actual: number; predicted: number; unexpected: number;
+    count: number; actual: number; predicted: number; high: number;
   }> = {};
 
   for (const r of results) {
     const state = r.recipient_state;
     if (!state) continue;
     if (!stateMap[state]) {
-      stateMap[state] = { count: 0, actual: 0, predicted: 0, unexpected: 0 };
+      stateMap[state] = { count: 0, actual: 0, predicted: 0, high: 0 };
     }
     stateMap[state].count += 1;
     stateMap[state].actual += r.actual_net_charge;
-    stateMap[state].predicted += r.predicted_net_charge;
-    if (r.dim_anomaly === 'Unexpected') stateMap[state].unexpected += 1;
+    stateMap[state].predicted += r.charge_predicted;
+    if (r.review_priority === 'high') stateMap[state].high += 1;
   }
 
   return Object.entries(stateMap)
@@ -292,18 +292,18 @@ export function computeStateData(results: ShipmentResult[]): StateDataPoint[] {
       actualTotal: parseFloat(d.actual.toFixed(2)),
       predictedTotal: parseFloat(d.predicted.toFixed(2)),
       gapTotal: parseFloat((d.actual - d.predicted).toFixed(2)),
-      unexpected: d.unexpected,
+      highPriority: d.high,
     }))
     .sort((a, b) => b.count - a.count);
 }
 
 export interface TrendsDataPoint {
   month: string;              // "May 2022", "Jun 2022", etc.
-  actual: number;             // sum of actual_net_charge for this month bucket
-  predicted: number;          // sum of predicted_net_charge for this month bucket
+  actual: number;             // sum of actual_net_charge for this period bucket
+  predicted: number;          // sum of charge_predicted for this period bucket
   gap: number;                // actual - predicted (positive = overcharge)
-  disputeCount: number;       // count of rows where dim_anomaly === 'Unexpected' in this bucket
-  cumulativeDisputes: number; // running total of dispute candidates up to and including this month
+  disputeCount: number;       // count of rows where review_priority === 'high' in this bucket
+  cumulativeDisputes: number; // running total of dispute candidates up to and including this period
 }
 
 /**
@@ -318,8 +318,8 @@ export function computeTrendsData(results: ShipmentResult[]): TrendsDataPoint[] 
     const month = getMonthKey(r.shipment_date) ?? 'Unknown';
     if (!buckets[month]) buckets[month] = { actual: 0, predicted: 0, disputes: 0 };
     buckets[month].actual += r.actual_net_charge;
-    buckets[month].predicted += r.predicted_net_charge;
-    if (r.dim_anomaly === 'Unexpected') buckets[month].disputes += 1;
+    buckets[month].predicted += r.charge_predicted;
+    if (r.review_priority === 'high') buckets[month].disputes += 1;
   }
 
   const sorted = Object.entries(buckets).sort(([a], [b]) => {
@@ -419,8 +419,8 @@ export function computeGranularTrendsData(
       buckets[key] = { label, sortDate, actual: 0, predicted: 0, disputes: 0 };
     }
     buckets[key].actual += r.actual_net_charge;
-    buckets[key].predicted += r.predicted_net_charge;
-    if (r.dim_anomaly === 'Unexpected') buckets[key].disputes += 1;
+    buckets[key].predicted += r.charge_predicted;
+    if (r.review_priority === 'high') buckets[key].disputes += 1;
   }
 
   const sorted = Object.values(buckets).sort((a, b) => {

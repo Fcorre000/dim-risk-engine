@@ -1,14 +1,12 @@
 import type { ShipmentResult } from '../types/api';
 
 /**
- * A dispute candidate is any shipment where FedEx was flagged as anomalous:
- * - dim_anomaly === 'Unexpected': DIM charge where model predicts DIM=N (strongest dispute case)
- * - cost_anomaly === 'Review': Actual charge > predicted × 1.25
+ * A dispute candidate is any shipment the v2 audit triage flagged for review —
+ * either `high` (≥ 2 of {dim disagrees, charge outside interval, anomaly score
+ * over threshold}) or `medium` (exactly 1 signal fired).
  */
 export function getDisputeCandidates(results: ShipmentResult[]): ShipmentResult[] {
-  return results.filter(
-    (r) => r.dim_anomaly === 'Unexpected' || r.cost_anomaly === 'Review'
-  );
+  return results.filter((r) => r.review_priority !== 'low');
 }
 
 // CWE-1236: Excel / Google Sheets / LibreOffice treat cells whose first character
@@ -35,29 +33,31 @@ export function csvField(s: string): string {
  * Returns a string with CRLF line endings per RFC 4180.
  */
 export function generateDisputeCandidatesCsv(candidates: ShipmentResult[]): string {
-  const HEADER = 'Tracking #,Service,Dims (LxWxH),Weight (lbs),Zone,Flag type,Actual $,Predicted Low $,Predicted $,Predicted High $,Gap $,Confidence';
+  const HEADER = 'Tracking #,Service,Dims (LxWxH),Weight (lbs),Zone,Priority,DIM Disagrees,Charge Outside Interval,Anomaly Flagged,Actual $,Predicted Low $,Predicted $,Predicted High $,Gap $,Anomaly Score';
   const rows = candidates.map((r) => {
-    const flagType = r.dim_anomaly ?? r.cost_anomaly ?? '';
     const dims = `${r.dim_length}x${r.dim_width}x${r.dim_height}`;
     const actual = r.actual_net_charge.toFixed(2);
-    const predLow = r.predicted_net_charge_low.toFixed(2);
-    const predicted = r.predicted_net_charge.toFixed(2);
-    const predHigh = r.predicted_net_charge_high.toFixed(2);
-    const gap = (r.actual_net_charge - r.predicted_net_charge_high).toFixed(2);
-    const confidence = r.dim_confidence != null ? `${Math.round(r.dim_confidence * 100)}%` : (r.cost_confidence ?? '');
+    const predLow = r.charge_lower_95.toFixed(2);
+    const predicted = r.charge_predicted.toFixed(2);
+    const predHigh = r.charge_upper_95.toFixed(2);
+    const gap = (r.actual_net_charge - r.charge_upper_95).toFixed(2);
+    const score = r.anomaly_score != null ? `${Math.round(r.anomaly_score * 100)}%` : '';
     return [
       csvField(r.tracking_number ?? ''),
       csvField(r.service_type),
       csvField(dims),
       r.weight_lbs,
       csvField(r.zone),
-      csvField(flagType),
+      csvField(r.review_priority.toUpperCase()),
+      r.dim_disagrees_with_fedex === true ? 'Y' : r.dim_disagrees_with_fedex === false ? 'N' : '',
+      r.charge_outside_interval === true ? 'Y' : r.charge_outside_interval === false ? 'N' : '',
+      r.anomaly_flagged === true ? 'Y' : r.anomaly_flagged === false ? 'N' : '',
       actual,
       predLow,
       predicted,
       predHigh,
       gap,
-      csvField(confidence),
+      csvField(score),
     ].join(',');
   });
   return [HEADER, ...rows].join('\r\n');
