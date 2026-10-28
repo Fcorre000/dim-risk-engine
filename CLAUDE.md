@@ -107,9 +107,10 @@ Schema of truth is `docs/api_contract.md` (vendored from the ML repo).
 - `onDemoLoad` in `App.tsx` hits `GET /demo/stream` on the backend (no file upload)
 - `/demo/stream` in `api/main.py` reads `api/sample_invoice.csv` server-side and streams
   NDJSON in the same format as `/analyze/stream`
-- `api/sample_invoice.csv` contains 1,618 shipments from **April 2024 only** — a single
-  month of real invoice data, matching the expected user workflow of uploading one month
-  at a time. UTF-8 (no BOM), LF line endings, committed to git via `.gitignore` exception
+- `api/sample_invoice.csv` contains 1,977 shipments stratified across **Mar 2024 – Mar 2026**
+  (25 months), not a single month — so the Overview chart opens on monthly grouping
+  for the demo, while a real one-month upload opens on daily (`pickGranularity`).
+  UTF-8 (no BOM), LF line endings, committed to git via `.gitignore` exception
   `!api/sample_invoice.csv`
 - Do NOT use a client-side fetch-blob-File approach for the demo — it breaks on the
   deployed static site because the CSV must be served by the backend, not the frontend
