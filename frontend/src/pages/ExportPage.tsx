@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { PageId, UploadState } from '../types/api';
 import { getDisputeCandidates, generateDisputeCandidatesCsv, downloadCsv } from '../lib/export';
 import { formatDollars } from '../lib/metrics';
@@ -11,6 +11,10 @@ interface ExportPageProps {
   uploadState: UploadState;
   onNavigate: (page: PageId) => void;
 }
+
+// The CSV carries every candidate; the on-screen preview grows in steps so a
+// 50k-row invoice doesn't put ~16k table rows in the DOM at once.
+const PREVIEW_STEP = 100;
 
 const CSV_COLUMNS = [
   'Tracking #', 'Service', 'Dims (LxWxH)', 'Weight (lbs)', 'Zone', 'Priority', 'DIM Disagrees',
@@ -38,6 +42,10 @@ export default function ExportPage({ uploadState, onNavigate }: ExportPageProps)
       ),
     [candidates],
   );
+
+  const [shown, setShown] = useState(PREVIEW_STEP);
+  useEffect(() => { setShown(PREVIEW_STEP); }, [candidates]);
+  const previewRows = sortedCandidates.slice(0, shown);
 
   const date = new Date().toISOString().slice(0, 10);
   const filename = `dimrisk-disputes-${date}.csv`;
@@ -88,7 +96,11 @@ export default function ExportPage({ uploadState, onNavigate }: ExportPageProps)
         <section className="card overflow-hidden" aria-label="Dispute candidates">
           <div className="px-[22px] pb-3 pt-[22px]">
             <h2 className="card-title">Dispute candidates</h2>
-            <p className="meta mt-0.5">High and medium priority, most money over the ceiling first</p>
+            <p className="meta tnum mt-0.5">
+              High and medium priority, most money over the ceiling first
+              {candidates.length > previewRows.length &&
+                ` · showing ${previewRows.length.toLocaleString()} of ${candidates.length.toLocaleString()}; the CSV has all of them`}
+            </p>
           </div>
 
           {candidates.length === 0 ? (
@@ -108,7 +120,7 @@ export default function ExportPage({ uploadState, onNavigate }: ExportPageProps)
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedCandidates.map((row) => {
+                  {previewRows.map((row) => {
                     // Same "recoverable" math as Overview KPI — gap to upper bound, not to point.
                     const gap = row.actual_net_charge - row.charge_upper_95;
                     return (
@@ -127,6 +139,13 @@ export default function ExportPage({ uploadState, onNavigate }: ExportPageProps)
                   })}
                 </tbody>
               </table>
+              {candidates.length > previewRows.length && (
+                <div className="px-[22px] py-3" style={{ borderTop: '1px solid var(--line)' }}>
+                  <button type="button" className="btn btn-quiet btn-sm -ml-3" onClick={() => setShown((n) => n + PREVIEW_STEP * 5)}>
+                    Show {Math.min(PREVIEW_STEP * 5, candidates.length - previewRows.length).toLocaleString()} more
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </section>

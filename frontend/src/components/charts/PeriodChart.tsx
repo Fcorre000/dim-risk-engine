@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { memo, useEffect, useId, useMemo, useState } from 'react';
 import type { PeriodPoint, TrendsGranularity } from '../../lib/metrics';
 import { formatDollars, formatDollarsShort } from '../../lib/metrics';
 import { useElementWidth } from '../../lib/useElementWidth';
@@ -62,7 +62,7 @@ export function BarSwatch({ cap }: { cap: 'top' | 'bottom' }) {
  * can claim back). One dollar scale for both sides. Unselected periods are
  * hatched; the selected one fills in.
  */
-export default function PeriodChart({ points, granularity, height = 300 }: PeriodChartProps) {
+function PeriodChart({ points, granularity, height = 300 }: PeriodChartProps) {
   const [wrapRef, width] = useElementWidth<HTMLDivElement>(720);
   const patternId = `hatch${useId().replace(/:/g, '')}`;
 
@@ -264,3 +264,5 @@ export default function PeriodChart({ points, granularity, height = 300 }: Perio
     </div>
   );
 }
+
+export default memo(PeriodChart);

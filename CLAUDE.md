@@ -126,6 +126,16 @@ Schema of truth is `docs/api_contract.md` (vendored from the ML repo).
   the threadpool (SpooledTemporaryFile lifecycle is unreliable)
 - `parse_invoice_chunks()` in `api/ingest.py` yields DataFrames in
   configurable chunk sizes (default 1000 rows)
+- Each scored chunk is written as one NDJSON block (`_ndjson_lines`), not one
+  `yield` per row — Starlette runs every `next()` of a sync generator on the
+  threadpool. Responses are gzipped (`GZipMiddleware`, level 5): 50k rows is
+  26.7 MB raw, 2.65 MB on the wire, still streamed chunk by chunk
+- Inference hot path: `predict.feature_vector()` builds the 105 features as a
+  plain list and `predict_batch` stacks one array per chunk (a one-row DataFrame
+  per shipment was ~65% of runtime). `run_inference` works on
+  `df.to_dict('records')` and parses shipment dates once per chunk
+  (`format='mixed'`, same per-value inference as before). Output is byte-identical;
+  `test_predict_batch_matches_predict_shipment` guards the batch path
 - Leakage columns stay in the chunker — `predict_batch` reads `Net Charge
   Billed Currency` directly for audit comparison; the 105-feature model
   input is built fresh from `transform_row` (no leakage column is ever
@@ -142,17 +152,27 @@ Schema of truth is `docs/api_contract.md` (vendored from the ML repo).
 - KPI counters (dimFlaggedCount, disputeCandidates, estRecoverable) are accumulated
   incrementally (O(1) per row) in `streamingKpis` state — never recomputed from the
   full array during streaming
-- `flushSync` from `react-dom` wraps each `setUploadState` call every 50 rows — this
+- The clock is checked every 50 rows, but KPIs + progress repaint at most every
+  `PAINT_INTERVAL_MS` (100 ms). Repainting every 50 rows meant ~1,000 forced renders
+  (each with a >=4 ms `setTimeout` yield) for a 50k-row file.
+- `flushSync` from `react-dom` wraps each `setUploadState` call — this
   forces React 18 to commit to the DOM synchronously before the stream loop continues.
   Without it, React 18's automatic batching defers renders past the yield point.
 - `setTimeout(resolve, 0)` after each flushSync yields to the browser to actually paint
-- Full results array flushed every 500 rows (for charts); tail rows flushed once after
-  the stream ends so KPIs don't freeze near completion
+- Full results array flushed for charts about 20 times per file
+  (`max(500, total / 20)` rows); tail rows flushed once after the stream ends so KPIs
+  don't freeze near completion
+- Heavy Overview children (`PeriodChart`, `ZoneRing`, `ActualVsPredictedChart`,
+  `AnomalyTable`) are `React.memo`; pass them stable props (`useCallback` handlers)
+- Aggregations in `lib/metrics.ts` are cached per results array (`memoByResults`,
+  WeakMap) — arrays are never mutated after a flush, so identity is the key
 - `OverviewPage` wraps computeKpis/computeZoneData in `useMemo`
   so they only rerun when `results` changes, not on every 50-row KPI update
 
 ## Actual vs Predicted scatter plot (Overview page)
-- Replaced the old monthly bar chart with a per-shipment **ScatterChart** (Recharts)
+- Per-shipment scatter, dots drawn on one `<canvas>` (an SVG circle per row was ~100k
+  DOM nodes at 50k rows); axes and the selection ring stay in SVG. Hover/click use a
+  grid hit-test (8px cells) and show a tooltip / the detail card
 - X = predicted charge, Y = actual charge; diagonal y=x reference line = perfect prediction
 - Dots color-coded by `review_priority`: `var(--over)` = high, `var(--warn)` = medium,
   `var(--faint)` = low (palette-aware, not hard-coded hex). Both axes log scale.
@@ -161,7 +181,7 @@ Schema of truth is `docs/api_contract.md` (vendored from the ML repo).
   by OverviewPage — kept for potential future use
 - Click a dot → persistent detail card appears below chart with copy buttons
   (Tracking #, Actual, Predicted, Gap) and dismiss (X) button
-- Selected dot enlarges (r=6) with white stroke ring; unselected dots are r=4
+- Selected dot enlarges (r=6) with an ink stroke ring; unselected dots are r=2.5 (clear) / 3.5
 
 ## Trends page — daily/weekly granularity
 - Users upload one month at a time (~1,000 shipments); monthly aggregation collapsed

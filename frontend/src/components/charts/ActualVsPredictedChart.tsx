@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReviewPriority, ShipmentResult } from '../../types/api';
 import { formatDollars, formatDollarsShort, zoneName } from '../../lib/metrics';
 import { escapeFormula } from '../../lib/export';
 import { useElementWidth } from '../../lib/useElementWidth';
+import { useCssVars } from '../../theme/ThemeContext';
 import CopyButton from '../ui/CopyButton';
 import Icon from '../ui/Icon';
 
@@ -32,6 +33,19 @@ const COLOR: Record<ReviewPriority, string> = {
   low: 'var(--faint)',
 };
 
+// Dots are drawn on one <canvas>: an SVG <circle> (plus <title>) per shipment
+// put ~100k nodes in the DOM at 50k rows and React re-diffed all of them on
+// every render. Axes, labels and the selection ring stay in SVG.
+const CANVAS_VARS = ['--over', '--warn', '--faint'] as const;
+const CELL = 8; // hit-test grid cell, px
+const HIT = 8;  // pick the nearest dot within this radius, px
+
+interface Layout {
+  xs: Float32Array;
+  ys: Float32Array;
+  grid: Map<number, number[]>;
+}
+
 // Charges run from a few dollars to a few thousand, so both axes are log:
 // a linear scale crushed 95% of the dots into one corner.
 const LOG_TICKS = [1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 30000];
@@ -42,31 +56,40 @@ function logDomain(maxV: number): { min: number; max: number; ticks: number[] } 
   return { min: FLOOR, max, ticks: LOG_TICKS.filter((t) => t >= FLOOR && t <= max) };
 }
 
-export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartProps) {
+// Points for a results array, plus the same points grouped low → medium → high
+// so flagged dots draw on top. Cached per array so remounting the Overview
+// doesn't re-sort 50k rows.
+const pointCache = new WeakMap<ShipmentResult[], { points: ScatterPoint[]; ordered: ScatterPoint[] }>();
+function scatterPoints(data: ShipmentResult[]) {
+  let hit = pointCache.get(data);
+  if (!hit) {
+    const points = data.map((r) => ({
+      rowIndex: r.row_index,
+      predicted: r.charge_predicted,
+      actual: r.actual_net_charge,
+      tracking: r.tracking_number,
+      service: r.service_type,
+      zone: r.zone,
+      gap: r.actual_net_charge - r.charge_predicted,
+      flag: r.review_priority,
+    }));
+    const rank = { low: 0, medium: 1, high: 2 } as const;
+    const ordered = [...points].sort((a, b) => rank[a.flag] - rank[b.flag]);
+    hit = { points, ordered };
+    pointCache.set(data, hit);
+  }
+  return hit;
+}
+
+function ActualVsPredictedChart({ data }: ActualVsPredictedChartProps) {
   const [selected, setSelected] = useState<ScatterPoint | null>(null);
+  const [hovered, setHovered] = useState<ScatterPoint | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const css = useCssVars(CANVAS_VARS);
   const [wrapRef, width, height] = useElementWidth<HTMLDivElement>(480, 320);
   const H = Math.max(280, height);
 
-  const points = useMemo<ScatterPoint[]>(
-    () =>
-      data.map((r) => ({
-        rowIndex: r.row_index,
-        predicted: r.charge_predicted,
-        actual: r.actual_net_charge,
-        tracking: r.tracking_number,
-        service: r.service_type,
-        zone: r.zone,
-        gap: r.actual_net_charge - r.charge_predicted,
-        flag: r.review_priority,
-      })),
-    [data],
-  );
-
-  // Draw clear rows first so flagged dots sit on top
-  const ordered = useMemo(() => {
-    const rank = { low: 0, medium: 1, high: 2 } as const;
-    return [...points].sort((a, b) => rank[a.flag] - rank[b.flag]);
-  }, [points]);
+  const { points, ordered } = useMemo(() => scatterPoints(data), [data]);
 
   const { min, max, ticks } = useMemo(() => {
     let m = 0;
@@ -81,6 +104,79 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
   const t = (v: number) => (Math.log10(Math.max(v, min)) - lmin) / lspan;
   const sx = (v: number) => LEFT + t(v) * plotW;
   const sy = (v: number) => TOP + plotH - t(v) * plotH;
+
+  // Screen positions and a coarse grid for hover/click hit-testing
+  const layout = useMemo<Layout>(() => {
+    const n = ordered.length;
+    const xs = new Float32Array(n);
+    const ys = new Float32Array(n);
+    const grid = new Map<number, number[]>();
+    for (let i = 0; i < n; i++) {
+      const x = sx(ordered[i].predicted);
+      const y = sy(ordered[i].actual);
+      xs[i] = x;
+      ys[i] = y;
+      const key = Math.floor(x / CELL) * 65536 + Math.floor(y / CELL);
+      const bucket = grid.get(key);
+      if (bucket) bucket.push(i); else grid.set(key, [i]);
+    }
+    return { xs, ys, grid };
+    // sx/sy are pure functions of these values
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ordered, plotW, plotH, min, max]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(H * dpr);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, H);
+    const fill: Record<ReviewPriority, string> = { high: css['--over'], medium: css['--warn'], low: css['--faint'] };
+    // `ordered` is grouped low → medium → high, so one path per group keeps
+    // flagged dots on top and costs three fills instead of 50k.
+    let i = 0;
+    while (i < ordered.length) {
+      const flag = ordered[i].flag;
+      const r = flag === 'low' ? 2.5 : 3.5;
+      ctx.globalAlpha = flag === 'low' ? 0.6 : 0.9;
+      ctx.fillStyle = fill[flag];
+      ctx.beginPath();
+      for (; i < ordered.length && ordered[i].flag === flag; i++) {
+        ctx.moveTo(layout.xs[i] + r, layout.ys[i]);
+        ctx.arc(layout.xs[i], layout.ys[i], r, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }, [layout, ordered, css, width, H]);
+
+  function pick(e: React.MouseEvent<HTMLDivElement>): ScatterPoint | null {
+    const box = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - box.left;
+    const y = e.clientY - box.top;
+    const cx = Math.floor(x / CELL);
+    const cy = Math.floor(y / CELL);
+    let best = -1;
+    let bestD = HIT * HIT;
+    for (let gx = cx - 1; gx <= cx + 1; gx++) {
+      for (let gy = cy - 1; gy <= cy + 1; gy++) {
+        const bucket = layout.grid.get(gx * 65536 + gy);
+        if (!bucket) continue;
+        for (const i of bucket) {
+          const dx = layout.xs[i] - x;
+          const dy = layout.ys[i] - y;
+          const d = dx * dx + dy * dy;
+          // ties go to the later (higher-priority, drawn-on-top) dot
+          if (d <= bestD) { bestD = d; best = i; }
+        }
+      }
+    }
+    return best >= 0 ? ordered[best] : null;
+  }
 
   const counts = useMemo(() => {
     const c = { high: 0, medium: 0, low: 0 };
@@ -108,7 +204,8 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
         {data.length === 0 ? (
           <p className="py-16" style={{ color: 'var(--muted)' }}>Dots appear here once an invoice is scored.</p>
         ) : (
-          <svg width={width} height={H} className="absolute inset-0 block" role="img" aria-label="Per-shipment billed versus predicted charge">
+          <>
+          <svg width={width} height={H} className="absolute inset-0 block" aria-hidden="true">
             {ticks.map((v, i) => (
               <g key={v}>
                 <line x1={LEFT} x2={LEFT + plotW} y1={sy(v)} y2={sy(v)} style={{ stroke: i === 0 ? 'var(--line-strong)' : 'var(--grid)' }} />
@@ -127,30 +224,52 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
               Billed = predicted
             </text>
 
-            {ordered.map((p) => {
-              const isSel = selected?.rowIndex === p.rowIndex;
-              return (
-                <circle
-                  key={p.rowIndex}
-                  cx={sx(p.predicted)}
-                  cy={sy(p.actual)}
-                  r={isSel ? 6 : p.flag === 'low' ? 2.5 : 3.5}
-                  style={{
-                    fill: COLOR[p.flag],
-                    stroke: isSel ? 'var(--ink)' : 'none',
-                    cursor: 'pointer',
-                  }}
-                  strokeWidth={isSel ? 2 : 0}
-                  opacity={p.flag === 'low' && !isSel ? 0.6 : 0.9}
-                  onClick={() => setSelected(isSel ? null : p)}
-                >
-                  <title>
-                    {`${p.tracking ?? 'no tracking #'} · ${p.service} · ${zoneName(p.zone)} — billed ${formatDollars(p.actual)}, predicted ${formatDollars(p.predicted)}`}
-                  </title>
-                </circle>
-              );
-            })}
           </svg>
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 block"
+            style={{ width, height: H }}
+            role="img"
+            aria-label={`Billed versus predicted charge for ${points.length.toLocaleString()} shipments: ${counts.high.toLocaleString()} high priority, ${counts.medium.toLocaleString()} medium, ${counts.low.toLocaleString()} clear`}
+          />
+          <svg width={width} height={H} className="pointer-events-none absolute inset-0 block" aria-hidden="true">
+            {hovered && hovered.rowIndex !== selected?.rowIndex && (
+              <circle cx={sx(hovered.predicted)} cy={sy(hovered.actual)} r={5} fill="none" style={{ stroke: 'var(--ink)' }} strokeWidth={1.5} />
+            )}
+            {selected && (
+              <circle cx={sx(selected.predicted)} cy={sy(selected.actual)} r={6}
+                style={{ fill: COLOR[selected.flag], stroke: 'var(--ink)' }} strokeWidth={2} />
+            )}
+          </svg>
+          <div
+            className="absolute inset-0"
+            style={{ cursor: hovered ? 'pointer' : 'default' }}
+            onMouseMove={(e) => {
+              const p = pick(e);
+              if (p?.rowIndex !== hovered?.rowIndex) setHovered(p);
+            }}
+            onMouseLeave={() => setHovered(null)}
+            onClick={(e) => {
+              const p = pick(e);
+              setSelected(p && p.rowIndex !== selected?.rowIndex ? p : null);
+            }}
+          />
+          {hovered && (
+            <div
+              className="float pointer-events-none absolute z-10 px-3 py-2 text-[13px]"
+              style={{
+                left: Math.min(sx(hovered.predicted) + 12, width - 230),
+                top: Math.max(0, sy(hovered.actual) - 56),
+                width: 218,
+              }}
+            >
+              <p className="mono truncate" style={{ color: 'var(--ink)' }}>{hovered.tracking ?? 'no tracking #'}</p>
+              <p className="tnum mt-0.5" style={{ color: 'var(--muted)' }}>
+                {hovered.service} · {zoneName(hovered.zone)} · {formatDollars(hovered.actual)} billed, {formatDollars(hovered.predicted)} predicted
+              </p>
+            </div>
+          )}
+          </>
         )}
       </div>
 
@@ -194,3 +313,5 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
     </figure>
   );
 }
+
+export default memo(ActualVsPredictedChart);

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { PageId, UploadState } from '../types/api';
 import {
   computeKpis,
@@ -117,6 +117,8 @@ export default function OverviewPage({ uploadState, onUpload, onDemoLoad, onNavi
   const [grainChoice, setGrainChoice] = useState<TrendsGranularity | null>(null);
   const grain = grainChoice ?? autoGrain;
   const series = useMemo(() => computePeriodSeries(results, grain), [results, grain]);
+
+  const openQueue = useCallback(() => onNavigate('anomalies'), [onNavigate]);
 
   const sk = uploadState.streamingKpis;
   const shipmentCount = uploadState.shipmentCount ?? 0;
@@ -332,7 +334,7 @@ export default function OverviewPage({ uploadState, onUpload, onDemoLoad, onNavi
               <ActualVsPredictedChart data={results} />
             </div>
             <div className="min-w-0 xl:col-span-7">
-              <AnomalyTable results={results} pageSize={7} onViewAll={() => onNavigate('anomalies')} />
+              <AnomalyTable results={results} pageSize={7} onViewAll={openQueue} />
             </div>
           </div>
         </>
