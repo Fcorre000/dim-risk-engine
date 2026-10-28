@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
-import type { ShipmentResult } from '../../types/api';
-import { formatDollars } from '../../lib/metrics';
+import type { ReviewPriority, ShipmentResult } from '../../types/api';
+import { formatDollars, formatDollarsShort, zoneName } from '../../lib/metrics';
 import { escapeFormula } from '../../lib/export';
+import { useElementWidth } from '../../lib/useElementWidth';
 import CopyButton from '../ui/CopyButton';
+import Icon from '../ui/Icon';
 
 interface ActualVsPredictedChartProps {
   data: ShipmentResult[];
 }
-
-type FlagType = 'high' | 'medium' | 'ok';
 
 interface ScatterPoint {
   rowIndex: number;
@@ -18,21 +18,34 @@ interface ScatterPoint {
   service: string;
   zone: string;
   gap: number;
-  flag: FlagType;
+  flag: ReviewPriority;
 }
 
-const W = 440;
-const H = 380;
-const P = 34;
+const LEFT = 48;
+const BOTTOM = 28;
+const TOP = 8;
+const RIGHT = 8;
 
-function colorFor(flag: FlagType): string {
-  if (flag === 'high') return 'var(--crit)';
-  if (flag === 'medium') return 'var(--warn)';
-  return 'var(--accent)';
+const COLOR: Record<ReviewPriority, string> = {
+  high: 'var(--over)',
+  medium: 'var(--warn)',
+  low: 'var(--faint)',
+};
+
+// Charges run from a few dollars to a few thousand, so both axes are log:
+// a linear scale crushed 95% of the dots into one corner.
+const LOG_TICKS = [1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 30000];
+const FLOOR = 3;
+
+function logDomain(maxV: number): { min: number; max: number; ticks: number[] } {
+  const max = LOG_TICKS.find((t) => t >= maxV * 1.05) ?? LOG_TICKS[LOG_TICKS.length - 1];
+  return { min: FLOOR, max, ticks: LOG_TICKS.filter((t) => t >= FLOOR && t <= max) };
 }
 
 export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartProps) {
   const [selected, setSelected] = useState<ScatterPoint | null>(null);
+  const [wrapRef, width, height] = useElementWidth<HTMLDivElement>(480, 320);
+  const H = Math.max(280, height);
 
   const points = useMemo<ScatterPoint[]>(
     () =>
@@ -44,153 +57,137 @@ export default function ActualVsPredictedChart({ data }: ActualVsPredictedChartP
         service: r.service_type,
         zone: r.zone,
         gap: r.actual_net_charge - r.charge_predicted,
-        flag: r.review_priority === 'high' ? 'high' : r.review_priority === 'medium' ? 'medium' : 'ok',
+        flag: r.review_priority,
       })),
     [data],
   );
 
-  const max = useMemo(() => {
-    if (points.length === 0) return 100;
-    return Math.max(...points.map((p) => Math.max(p.actual, p.predicted))) * 1.05;
+  // Draw clear rows first so flagged dots sit on top
+  const ordered = useMemo(() => {
+    const rank = { low: 0, medium: 1, high: 2 } as const;
+    return [...points].sort((a, b) => rank[a.flag] - rank[b.flag]);
   }, [points]);
 
-  const sx = (v: number) => P + (v / max) * (W - P - 12);
-  const sy = (v: number) => H - P - (v / max) * (H - P - 12);
+  const { min, max, ticks } = useMemo(() => {
+    let m = 0;
+    for (const p of points) m = Math.max(m, p.actual, p.predicted);
+    return logDomain(m || 100);
+  }, [points]);
 
-  const isEmpty = data.length === 0;
+  const plotW = Math.max(100, width - LEFT - RIGHT);
+  const plotH = H - TOP - BOTTOM;
+  const lmin = Math.log10(min);
+  const lspan = Math.log10(max) - lmin;
+  const t = (v: number) => (Math.log10(Math.max(v, min)) - lmin) / lspan;
+  const sx = (v: number) => LEFT + t(v) * plotW;
+  const sy = (v: number) => TOP + plotH - t(v) * plotH;
+
+  const counts = useMemo(() => {
+    const c = { high: 0, medium: 0, low: 0 };
+    for (const p of points) c[p.flag] += 1;
+    return c;
+  }, [points]);
 
   return (
-    <figure
-      className="border p-4 h-full"
-      style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
-    >
-      <div
-        className="flex items-center justify-between text-[10px] tracking-widest mb-2"
-        style={{ color: 'var(--muted)' }}
-      >
-        <span>&gt; FIG.02 · ACTUAL × PREDICTED</span>
-        <span>N={points.length.toLocaleString()}</span>
-      </div>
-
-      {isEmpty ? (
-        <div
-          className="p-10 text-center text-[11px] tracking-widest"
-          style={{ color: 'var(--muted)' }}
-        >
-          NO SIGNAL — INGEST AN INVOICE
+    <figure className="card card-pad flex h-full flex-col">
+      <div className="card-head">
+        <figcaption className="card-title">Billed against the model</figcaption>
+        <div className="flex items-center gap-4 text-[12px]" style={{ color: 'var(--muted)' }}>
+          {(['high', 'medium', 'low'] as const).map((k) => (
+            <span key={k} className="flex items-center gap-1.5">
+              <span className="dot" style={{ background: COLOR[k] }} />
+              {k === 'low' ? 'Clear' : k === 'high' ? 'High' : 'Medium'}
+              <span className="tnum" style={{ color: 'var(--faint)' }}>{counts[k].toLocaleString()}</span>
+            </span>
+          ))}
         </div>
-      ) : (
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          preserveAspectRatio="xMidYMid meet"
-          className="w-full"
-          role="img"
-          aria-label="Per-shipment actual vs predicted charge scatter"
-        >
-          {/* Gridlines */}
-          {Array.from({ length: 5 }).map((_, i) => {
-            const y = P + (i * (H - 2 * P)) / 4;
-            return <line key={`h${i}`} x1={P} x2={W - 12} y1={y} y2={y} stroke="var(--border)" />;
-          })}
-          {Array.from({ length: 5 }).map((_, i) => {
-            const x = P + (i * (W - P - 12)) / 4;
-            return <line key={`v${i}`} x1={x} x2={x} y1={P} y2={H - P} stroke="var(--border)" />;
-          })}
+      </div>
+      <p className="meta mt-1">One dot per shipment, predicted across and billed up, both on a log scale. Above the diagonal, FedEx billed more than the model expected.</p>
 
-          {/* Diagonal y=x */}
-          <line
-            x1={sx(0)}
-            y1={sy(0)}
-            x2={sx(max)}
-            y2={sy(max)}
-            stroke="var(--accent)"
-            strokeOpacity="0.45"
-            strokeDasharray="4 3"
-          />
+      <div ref={wrapRef} className="relative mt-4 min-h-[280px] min-w-0 flex-1">
+        {data.length === 0 ? (
+          <p className="py-16" style={{ color: 'var(--muted)' }}>Dots appear here once an invoice is scored.</p>
+        ) : (
+          <svg width={width} height={H} className="absolute inset-0 block" role="img" aria-label="Per-shipment billed versus predicted charge">
+            {ticks.map((v, i) => (
+              <g key={v}>
+                <line x1={LEFT} x2={LEFT + plotW} y1={sy(v)} y2={sy(v)} style={{ stroke: i === 0 ? 'var(--line-strong)' : 'var(--grid)' }} />
+                <text x={0} y={sy(v) + 4} fontSize={12} style={{ fill: 'var(--faint)' }}>{formatDollarsShort(v)}</text>
+                {(i > 0 && (plotW >= 360 || i % 2 === ticks.length % 2)) && (
+                  <text x={sx(v)} y={H - 8} fontSize={12} textAnchor={v === max ? 'end' : 'middle'} style={{ fill: 'var(--faint)' }}>
+                    {formatDollarsShort(v)}
+                  </text>
+                )}
+              </g>
+            ))}
 
-          {/* Points */}
-          {points.map((p) => {
-            const isSel = selected?.rowIndex === p.rowIndex;
-            const r = p.flag === 'ok' ? 1.5 : isSel ? 3.5 : 2.5;
-            return (
-              <circle
-                key={p.rowIndex}
-                cx={sx(p.predicted)}
-                cy={sy(p.actual)}
-                r={r}
-                fill={colorFor(p.flag)}
-                opacity={p.flag === 'ok' ? 0.4 : 0.95}
-                stroke={isSel ? 'var(--text)' : 'none'}
-                strokeWidth={isSel ? 1 : 0}
-                style={{ cursor: 'pointer' }}
-                onClick={() => setSelected(p)}
-              >
-                <title>
-                  {`${p.tracking ?? 'no tracking #'} — ${p.service} · Z${p.zone} — actual ${formatDollars(p.actual)} / predicted ${formatDollars(p.predicted)}`}
-                </title>
-              </circle>
-            );
-          })}
+            {/* y = x: billed exactly what the model predicted */}
+            <line x1={sx(min)} y1={sy(min)} x2={sx(max)} y2={sy(max)} style={{ stroke: 'var(--muted)' }} strokeDasharray="4 4" />
+            <text x={sx(max) - 4} y={sy(max) + 16} fontSize={12} textAnchor="end" style={{ fill: 'var(--muted)' }}>
+              Billed = predicted
+            </text>
 
-          <text x={W - 14} y={H - 8} textAnchor="end" fontSize="9" fill="var(--muted)" fontFamily="JetBrains Mono">
-            predicted →
-          </text>
-          <text x={P + 2} y={P - 4} fontSize="9" fill="var(--muted)" fontFamily="JetBrains Mono">
-            ↑ actual
-          </text>
-        </svg>
-      )}
-
-      {/* Legend */}
-      <div className="flex items-center justify-center gap-5 mt-3 text-[10px] tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2" style={{ background: 'var(--crit)' }} />▲ HIGH
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2" style={{ background: 'var(--warn)' }} />■ MEDIUM
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2" style={{ background: 'var(--accent)' }} />· LOW
-        </span>
+            {ordered.map((p) => {
+              const isSel = selected?.rowIndex === p.rowIndex;
+              return (
+                <circle
+                  key={p.rowIndex}
+                  cx={sx(p.predicted)}
+                  cy={sy(p.actual)}
+                  r={isSel ? 6 : p.flag === 'low' ? 2.5 : 3.5}
+                  style={{
+                    fill: COLOR[p.flag],
+                    stroke: isSel ? 'var(--ink)' : 'none',
+                    cursor: 'pointer',
+                  }}
+                  strokeWidth={isSel ? 2 : 0}
+                  opacity={p.flag === 'low' && !isSel ? 0.6 : 0.9}
+                  onClick={() => setSelected(isSel ? null : p)}
+                >
+                  <title>
+                    {`${p.tracking ?? 'no tracking #'} · ${p.service} · ${zoneName(p.zone)} — billed ${formatDollars(p.actual)}, predicted ${formatDollars(p.predicted)}`}
+                  </title>
+                </circle>
+              );
+            })}
+          </svg>
+        )}
       </div>
 
-      {/* Selected detail card */}
       {selected && (
-        <div
-          className="mt-4 border p-3 text-[11px]"
-          style={{ borderColor: 'var(--border)', background: 'var(--row-hov)' }}
-        >
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div className="space-y-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold" style={{ color: 'var(--text)' }}>
-                  {selected.tracking ?? <span className="italic opacity-70">no tracking #</span>}
-                </span>
-                <span style={{ color: 'var(--muted)' }}>/ {selected.service} · Z{selected.zone}</span>
-              </div>
-              <div className="flex items-center gap-4 text-[11px] tabular-nums">
-                <span style={{ color: 'var(--text)' }}>ACT {formatDollars(selected.actual)}</span>
-                <span style={{ color: 'var(--muted)' }}>PRED {formatDollars(selected.predicted)}</span>
-                <span style={{ color: selected.gap > 0 ? 'var(--crit)' : 'var(--accent)' }}>
-                  {selected.gap >= 0 ? '+' : ''}{formatDollars(selected.gap)}
-                </span>
-              </div>
+        <div className="mt-4 rounded-[14px] p-4" style={{ background: 'var(--raised)' }}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="mono truncate" style={{ color: 'var(--ink)' }}>
+                {selected.tracking ?? <span className="italic opacity-60">no tracking #</span>}
+              </p>
+              <p className="meta mt-1">{selected.service} · {zoneName(selected.zone)}</p>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <CopyButton text={escapeFormula(selected.tracking ?? '')} label="Tracking #" />
-              <CopyButton text={formatDollars(selected.actual)} label="Actual" />
-              <CopyButton text={formatDollars(selected.predicted)} label="Predicted" />
-              <CopyButton text={`${selected.gap >= 0 ? '+' : ''}${formatDollars(selected.gap)}`} label="Gap" />
-              <button
-                type="button"
-                onClick={() => setSelected(null)}
-                aria-label="Dismiss selection"
-                className="px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
-                style={{ color: 'var(--muted)' }}
-              >
-                ×
-              </button>
+            <button type="button" onClick={() => setSelected(null)} aria-label="Dismiss selection" className="icon-btn -mr-2 -mt-2">
+              <Icon name="x" size={16} />
+            </button>
+          </div>
+          <dl className="mt-3 grid grid-cols-3 gap-3 text-[14px]">
+            <div>
+              <dt className="meta">Billed</dt>
+              <dd className="tnum mt-0.5">{formatDollars(selected.actual)}</dd>
             </div>
+            <div>
+              <dt className="meta">Predicted</dt>
+              <dd className="tnum mt-0.5">{formatDollars(selected.predicted)}</dd>
+            </div>
+            <div>
+              <dt className="meta">Gap</dt>
+              <dd className="tnum mt-0.5" style={{ color: selected.gap > 0 ? 'var(--over)' : 'var(--ink)' }}>
+                {selected.gap >= 0 ? '+' : ''}{formatDollars(selected.gap)}
+              </dd>
+            </div>
+          </dl>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <CopyButton text={escapeFormula(selected.tracking ?? '')} label="Tracking #" />
+            <CopyButton text={formatDollars(selected.actual)} label="Billed" />
+            <CopyButton text={formatDollars(selected.predicted)} label="Predicted" />
+            <CopyButton text={`${selected.gap >= 0 ? '+' : ''}${formatDollars(selected.gap)}`} label="Gap" />
           </div>
         </div>
       )}

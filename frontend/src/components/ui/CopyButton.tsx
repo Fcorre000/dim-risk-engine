@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import type { ShipmentResult } from '../../types/api';
 import { formatDollars } from '../../lib/metrics';
 import { escapeFormula } from '../../lib/export';
+import Icon from './Icon';
 
 interface CopyButtonProps {
   text: string;
@@ -33,61 +34,44 @@ export function rowsToTsv(rows: ShipmentResult[]): string {
   return [TSV_HEADER, ...rows.map(rowToTsv)].join('\n');
 }
 
-const BASE_CLS =
-  'inline-flex items-center gap-1.5 px-2 py-1 text-[10px] tracking-widest uppercase border transition-colors duration-150 cursor-pointer';
+function useCopied(ms: number) {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback((text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), ms);
+    });
+  }, [ms]);
+  return { copied, copy };
+}
 
 export function CopyTableButton({ rows }: { rows: ShipmentResult[] }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(rowsToTsv(rows)).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }, [rows]);
-
+  const { copied, copy } = useCopied(1500);
   return (
     <button
       type="button"
-      onClick={handleCopy}
-      className={BASE_CLS}
-      style={{
-        borderColor: 'var(--border-2)',
-        background: 'transparent',
-        color: copied ? 'var(--accent)' : 'var(--text)',
-        textShadow: copied ? 'var(--glow)' : 'none',
-      }}
+      onClick={() => copy(rowsToTsv(rows))}
+      disabled={rows.length === 0}
+      className="btn btn-ghost btn-sm"
       title={`Copy all ${rows.length} rows as tab-separated text`}
     >
-      {copied ? `✓ COPIED ${rows.length}` : `⧉ COPY ALL (${rows.length})`}
+      <Icon name={copied ? 'check' : 'copy'} size={14} style={copied ? { color: 'var(--ok)' } : undefined} />
+      {copied ? `Copied ${rows.length.toLocaleString()}` : `Copy all ${rows.length.toLocaleString()}`}
     </button>
   );
 }
 
 export default function CopyButton({ text, label }: CopyButtonProps) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    });
-  }, [text]);
-
+  const { copied, copy } = useCopied(1200);
   return (
     <button
       type="button"
-      onClick={handleCopy}
-      className={BASE_CLS}
-      style={{
-        borderColor: 'var(--border-2)',
-        background: 'transparent',
-        color: copied ? 'var(--accent)' : 'var(--text)',
-        textShadow: copied ? 'var(--glow)' : 'none',
-      }}
+      onClick={() => copy(text)}
+      className="btn btn-ghost btn-sm"
       title={`Copy ${label}`}
     >
-      {copied ? '✓' : '⧉'} <span>{label}</span>
+      <Icon name={copied ? 'check' : 'copy'} size={14} style={copied ? { color: 'var(--ok)' } : undefined} />
+      <span>{label}</span>
     </button>
   );
 }

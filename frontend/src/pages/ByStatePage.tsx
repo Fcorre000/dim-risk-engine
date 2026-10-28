@@ -4,10 +4,11 @@ import {
   Geographies,
   Geography,
 } from 'react-simple-maps';
-import type { UploadState } from '../types/api';
+import type { PageId, UploadState } from '../types/api';
 import { computeStateData, formatDollars } from '../lib/metrics';
-import { useTheme } from '../theme/ThemeContext';
-import { getPalette } from '../theme/variants';
+import { useCssVars } from '../theme/ThemeContext';
+import PageHeader from '../components/ui/PageHeader';
+import EmptyState from '../components/ui/EmptyState';
 // Bundled at build time from the pinned `us-atlas` npm dep (see package.json).
 // Previously loaded from jsdelivr CDN at runtime — moved in-tree to eliminate
 // the third-party supply-chain / MITM surface for map geometry.
@@ -28,6 +29,10 @@ const NAME_TO_ABBR: Record<string, string> = {
   'Vermont': 'VT', 'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV',
   'Wisconsin': 'WI', 'Wyoming': 'WY', 'District of Columbia': 'DC',
 };
+
+const ABBR_TO_NAME: Record<string, string> = Object.fromEntries(
+  Object.entries(NAME_TO_ABBR).map(([name, abbr]) => [abbr, name]),
+);
 
 function hexToRgb(hex: string): [number, number, number] {
   const s = hex.replace('#', '');
@@ -55,18 +60,16 @@ interface TooltipData {
 
 interface ByStatePageProps {
   uploadState: UploadState;
+  onNavigate: (page: PageId) => void;
 }
 
-export default function ByStatePage({ uploadState }: ByStatePageProps) {
+const VARS = ['--raised', '--billed', '--surface', '--ink', '--line'] as const;
+
+export default function ByStatePage({ uploadState, onNavigate }: ByStatePageProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
-  const { variant, theme } = useTheme();
-  const palette = getPalette(variant, theme);
+  const css = useCssVars(VARS);
 
-  const panelCol = hexToRgb(palette['--panel']);
-  const accentCol = hexToRgb(palette['--accent']);
-  const borderCol = palette['--border-2'];
-
-  const results = uploadState.results ?? [];
+  const results = useMemo(() => uploadState.results ?? [], [uploadState.results]);
   const stateData = useMemo(() => computeStateData(results), [results]);
 
   const stateMap = useMemo(() => {
@@ -78,50 +81,58 @@ export default function ByStatePage({ uploadState }: ByStatePageProps) {
   const maxCount = stateData.length > 0 ? stateData[0].count : 0;
   const totalMapped = stateData.reduce((s, d) => s + d.count, 0);
 
+  // Sequential ramp in the billed hue, from one step above the card to full strength
+  const lo = hexToRgb(css['--raised'] || '#1b1b1b');
+  const hi = hexToRgb(css['--billed'] || '#6f9dff');
   function colorFor(count: number): string {
-    if (count === 0 || maxCount === 0) return palette['--bg'];
+    if (count === 0 || maxCount === 0) return css['--raised'];
     const t = Math.min(count / maxCount, 1);
-    return mixColors(panelCol, accentCol, 0.2 + t * 0.8);
+    return mixColors(lo, hi, 0.18 + Math.sqrt(t) * 0.82);
   }
 
   if (results.length === 0) {
     return (
-      <div className="space-y-4">
-        <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
-          &gt; 03 BY.STATE · SHIP.DENSITY.US
-        </h1>
-        <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-          <div className="p-10 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
-            NO SIGNAL — INGEST AN INVOICE ON 00 OVERVIEW
-          </div>
+      <div className="space-y-6">
+        <PageHeader title="States" sub="Where your shipments go, and what each state was billed." />
+        <section className="card">
+          <EmptyState onGoToOverview={() => onNavigate('overview')}>
+            No invoice scored yet. The map fills in once one is.
+          </EmptyState>
         </section>
       </div>
     );
   }
 
+  const top = stateData.slice(0, 12);
+  const unmapped = results.length - totalMapped;
+
   return (
-    <div className="space-y-4">
-      {/* Page title */}
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
-          &gt; 03 BY.STATE · SHIP.DENSITY.US
-        </h1>
-        <p className="text-[10px] tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
-          N.MAPPED {totalMapped.toLocaleString()} · N.STATES {stateData.length}
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="States"
+        sub={
+          <span className="tnum">
+            {totalMapped.toLocaleString()} shipments to {stateData.length} recipient states
+            {unmapped > 0 && <> · {unmapped.toLocaleString()} without a recipient state</>}
+          </span>
+        }
+      />
 
-      {/* Map panel */}
-      <section className="border relative" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-        <div
-          className="px-4 py-2 border-b flex items-center justify-between text-[10px] tracking-widest"
-          style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
-        >
-          <span>&gt; FIG.05 · CHOROPLETH · SHIPMENTS/STATE</span>
-          <span>HOVER FOR DETAIL</span>
-        </div>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <section className="card card-pad relative" aria-label="Shipments by state map">
+          <div className="card-head">
+            <h2 className="card-title">Shipments by recipient state</h2>
+            <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--faint)' }}>
+              <span>1</span>
+              <span
+                className="h-2 w-28 rounded-full"
+                style={{ background: `linear-gradient(to right, ${mixColors(lo, hi, 0.18)}, ${css['--billed']})` }}
+                aria-hidden="true"
+              />
+              <span className="tnum">{maxCount.toLocaleString()}</span>
+            </div>
+          </div>
 
-        <div className="p-4">
           <ComposableMap
             projection="geoAlbersUsa"
             projectionConfig={{ scale: 1000 }}
@@ -142,8 +153,8 @@ export default function ByStatePage({ uploadState }: ByStatePageProps) {
                       key={geo.rsmKey}
                       geography={geo}
                       fill={colorFor(count)}
-                      stroke={borderCol}
-                      strokeWidth={0.5}
+                      stroke={css['--surface']}
+                      strokeWidth={0.75}
                       onMouseEnter={() => {
                         if (abbr) {
                           setTooltip({
@@ -159,7 +170,7 @@ export default function ByStatePage({ uploadState }: ByStatePageProps) {
                       onMouseLeave={() => setTooltip(null)}
                       style={{
                         default: { outline: 'none' },
-                        hover: { fill: palette['--accent'], outline: 'none', cursor: 'pointer' },
+                        hover: { fill: css['--ink'], outline: 'none', cursor: 'pointer' },
                         pressed: { outline: 'none' },
                       }}
                     />
@@ -169,104 +180,89 @@ export default function ByStatePage({ uploadState }: ByStatePageProps) {
             </Geographies>
           </ComposableMap>
 
-          {/* Tooltip */}
           {tooltip && (
-            <div
-              className="absolute top-16 right-8 border px-3 py-2 text-[11px] z-10 min-w-[200px]"
-              style={{ borderColor: 'var(--border-2)', background: 'var(--panel)', color: 'var(--text)' }}
-            >
-              <p className="text-[10px] tracking-widest mb-2" style={{ color: 'var(--muted)' }}>
-                &gt; STATE {tooltip.abbr} · {tooltip.name.toUpperCase()}
-              </p>
-              <div className="space-y-1 tabular-nums">
-                <p style={{ color: 'var(--muted)' }}>
-                  SHIPMENTS <span className="ml-2" style={{ color: 'var(--text)' }}>{tooltip.count.toLocaleString()}</span>
-                </p>
-                <p style={{ color: 'var(--muted)' }}>
-                  ACT.SUM <span className="ml-2" style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>
-                    {formatDollars(tooltip.actualTotal)}
-                  </span>
-                </p>
-                <p style={{ color: 'var(--muted)' }}>
-                  GAP{' '}
-                  <span
-                    className="ml-2"
-                    style={{ color: tooltip.gapTotal > 0 ? 'var(--crit)' : 'var(--accent)' }}
-                  >
+            <div className="float pointer-events-none absolute right-6 top-20 z-10 w-[220px] p-4">
+              <p style={{ color: 'var(--ink)' }}>{tooltip.name}</p>
+              <dl className="mt-3 space-y-1.5 text-[14px]">
+                <div className="flex justify-between gap-3">
+                  <dt style={{ color: 'var(--muted)' }}>Shipments</dt>
+                  <dd className="tnum">{tooltip.count.toLocaleString()}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt style={{ color: 'var(--muted)' }}>Billed</dt>
+                  <dd className="tnum">{formatDollars(tooltip.actualTotal)}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt style={{ color: 'var(--muted)' }}>Gap</dt>
+                  <dd className="tnum" style={{ color: tooltip.gapTotal > 0 ? 'var(--over)' : 'var(--ink)' }}>
                     {tooltip.gapTotal >= 0 ? '+' : ''}{formatDollars(tooltip.gapTotal)}
-                  </span>
-                </p>
-                {tooltip.highPriority > 0 && (
-                  <p style={{ color: 'var(--crit)' }}>▲ HIGH {tooltip.highPriority}</p>
-                )}
-              </div>
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt style={{ color: 'var(--muted)' }}>High priority</dt>
+                  <dd className="tnum" style={{ color: tooltip.highPriority > 0 ? 'var(--over)' : 'var(--ink)' }}>
+                    {tooltip.highPriority.toLocaleString()}
+                  </dd>
+                </div>
+              </dl>
             </div>
           )}
+        </section>
 
-          {/* Legend */}
-          <div className="flex items-center gap-2 mt-3 text-[9px] tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
-            <span>LOW</span>
-            <div
-              className="h-2 flex-1"
-              style={{
-                background: `linear-gradient(to right, ${mixColors(panelCol, accentCol, 0.2)}, ${palette['--accent']})`,
-              }}
-            />
-            <span>HIGH</span>
-            <span className="ml-2 opacity-70">· MAX {maxCount.toLocaleString()}</span>
-          </div>
-        </div>
-      </section>
+        <section className="card card-pad" aria-label="Top states">
+          <h2 className="card-title">Busiest states</h2>
+          <p className="meta mt-0.5">By shipment count</p>
+          <ol className="mt-5 space-y-[18px]">
+            {top.map((d) => (
+              <li key={d.state}>
+                <div className="flex items-baseline justify-between gap-3 text-[14px]">
+                  <span style={{ color: 'var(--ink)' }}>{ABBR_TO_NAME[d.state] ?? d.state}</span>
+                  <span className="tnum" style={{ color: 'var(--ink)' }}>
+                    {d.count.toLocaleString()}{' '}
+                    <span style={{ color: 'var(--faint)' }}>{formatDollars(d.actualTotal)}</span>
+                  </span>
+                </div>
+                <div className="mt-2 h-1 w-full rounded-full" style={{ background: 'var(--raised)' }}>
+                  <div className="h-full rounded-full" style={{ width: `${(d.count / maxCount) * 100}%`, background: 'var(--billed)' }} />
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
+      </div>
 
-      {/* Summary table */}
-      <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-        <div
-          className="px-4 py-2 border-b flex items-center justify-between text-[10px] tracking-widest"
-          style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
-        >
-          <span>&gt; TBL.03 · STATE_SUMMARY</span>
-          <span>ORDER.BY count DESC</span>
+      <section className="card overflow-hidden" aria-label="State summary">
+        <div className="px-[22px] pb-3 pt-[22px]">
+          <h2 className="card-title">All states</h2>
+          <p className="meta mt-0.5">Most shipments first</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-[11.5px] font-jb" role="table" aria-label="State shipment summary">
+          <table className="table" aria-label="State shipment summary">
             <thead>
-              <tr className="border-b text-[9px] tracking-widest" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
-                <th scope="col" className="px-4 py-2 text-left">STATE</th>
-                <th scope="col" className="px-4 py-2 text-right">N</th>
-                <th scope="col" className="px-4 py-2 text-right">ACT.SUM</th>
-                <th scope="col" className="px-4 py-2 text-right">PRED.SUM</th>
-                <th scope="col" className="px-4 py-2 text-right">GAP</th>
-                <th scope="col" className="px-4 py-2 text-right">HIGH</th>
+              <tr>
+                <th scope="col">State</th>
+                <th scope="col" className="num">Shipments</th>
+                <th scope="col" className="num">Billed</th>
+                <th scope="col" className="num">Predicted</th>
+                <th scope="col" className="num">Gap</th>
+                <th scope="col" className="num">High priority</th>
               </tr>
             </thead>
             <tbody>
               {stateData.map((d) => (
-                <tr
-                  key={d.state}
-                  className="border-b transition-colors duration-150"
-                  style={{ borderColor: 'var(--border)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--row-hov)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                >
-                  <td className="px-4 py-1.5 tabular-nums">{d.state}</td>
-                  <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
-                    {d.count.toLocaleString()}
+                <tr key={d.state}>
+                  <td>
+                    <span style={{ color: 'var(--ink)' }}>{ABBR_TO_NAME[d.state] ?? d.state}</span>{' '}
+                    <span style={{ color: 'var(--faint)' }}>{d.state}</span>
                   </td>
-                  <td className="px-4 py-1.5 tabular-nums text-right">{formatDollars(d.actualTotal)}</td>
-                  <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
-                    {formatDollars(d.predictedTotal)}
-                  </td>
-                  <td
-                    className="px-4 py-1.5 tabular-nums text-right"
-                    style={{ color: d.gapTotal > 0 ? 'var(--crit)' : d.gapTotal < 0 ? 'var(--accent)' : 'var(--muted)' }}
-                  >
+                  <td className="num" style={{ color: 'var(--muted)' }}>{d.count.toLocaleString()}</td>
+                  <td className="num">{formatDollars(d.actualTotal)}</td>
+                  <td className="num" style={{ color: 'var(--muted)' }}>{formatDollars(d.predictedTotal)}</td>
+                  <td className="num" style={{ color: d.gapTotal > 0 ? 'var(--over)' : 'var(--ink)' }}>
                     {d.gapTotal >= 0 ? '+' : ''}{formatDollars(d.gapTotal)}
                   </td>
-                  <td
-                    className="px-4 py-1.5 tabular-nums text-right"
-                    style={{ color: d.highPriority > 0 ? 'var(--crit)' : 'var(--muted)' }}
-                  >
-                    {d.highPriority}
+                  <td className="num" style={{ color: d.highPriority > 0 ? 'var(--over)' : 'var(--muted)' }}>
+                    {d.highPriority.toLocaleString()}
                   </td>
                 </tr>
               ))}

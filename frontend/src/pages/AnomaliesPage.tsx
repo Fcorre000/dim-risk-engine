@@ -1,11 +1,17 @@
 import { useState, useMemo, useEffect } from 'react';
-import type { ShipmentResult, UploadState } from '../types/api';
-import { formatDollars } from '../lib/metrics';
-import { escapeFormula } from '../lib/export';
-import CopyButton, { CopyTableButton } from '../components/ui/CopyButton';
+import type { PageId, ShipmentResult, UploadState } from '../types/api';
+import { formatDollars, zoneName } from '../lib/metrics';
+import { CopyTableButton } from '../components/ui/CopyButton';
+import PageHeader from '../components/ui/PageHeader';
+import EmptyState from '../components/ui/EmptyState';
+import PriorityTag from '../components/ui/PriorityTag';
+import IntervalStrip from '../components/ui/IntervalStrip';
+import Icon from '../components/ui/Icon';
+import { FlagInfoPopover, RowCopyBar } from '../components/table/AnomalyTable';
 
 interface AnomaliesPageProps {
   uploadState: UploadState;
+  onNavigate: (page: PageId) => void;
 }
 
 type SortColumn = 'flag' | 'actual' | 'gap' | 'confidence';
@@ -13,6 +19,13 @@ type SortDir = 'asc' | 'desc';
 
 const PAGE_SIZE_OPTIONS = [50, 100, 250, 500] as const;
 type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+
+const SORT_NAME: Record<SortColumn, string> = {
+  flag: 'priority',
+  actual: 'billed',
+  gap: 'over ceiling',
+  confidence: 'anomaly score',
+};
 
 function flagOrder(r: ShipmentResult): number {
   if (r.review_priority === 'high') return 0;
@@ -27,57 +40,42 @@ function confidenceScore(r: ShipmentResult): number {
   return r.anomaly_score ?? 0;
 }
 
-function FlagCell({ row }: { row: ShipmentResult }) {
-  if (row.review_priority === 'high') {
-    return (
-      <span className="tabular-nums whitespace-nowrap" style={{ color: 'var(--crit)' }}>
-        ▲ HIGH
-        {row.anomaly_score != null && (
-          <span className="ml-1 opacity-70">{Math.round(row.anomaly_score * 100)}%</span>
-        )}
-      </span>
-    );
-  }
-  if (row.review_priority === 'medium') {
-    return (
-      <span className="tabular-nums whitespace-nowrap" style={{ color: 'var(--warn)' }}>
-        ■ MEDIUM
-        {row.anomaly_score != null && (
-          <span className="ml-1 opacity-70">{Math.round(row.anomaly_score * 100)}%</span>
-        )}
-      </span>
-    );
-  }
-  return <span style={{ color: 'var(--muted)' }}>· LOW</span>;
-}
-
-function SortMark({ col, sortCol, sortDir }: { col: SortColumn; sortCol: SortColumn; sortDir: SortDir }) {
-  if (col !== sortCol) {
-    return <span className="ml-1 opacity-50">⇅</span>;
-  }
+function SortHeader({
+  col, label, sortCol, sortDir, onSort, align = 'left',
+}: {
+  col: SortColumn; label: string; sortCol: SortColumn; sortDir: SortDir;
+  onSort: (c: SortColumn) => void; align?: 'left' | 'right';
+}) {
+  const on = col === sortCol;
   return (
-    <span className="ml-1" style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>
-      {sortDir === 'asc' ? '▲' : '▼'}
-    </span>
+    <th
+      scope="col"
+      className={align === 'right' ? 'num' : undefined}
+      aria-sort={on ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <button type="button" className="sort" onClick={() => onSort(col)}>
+        {label}
+        {on && <Icon name={sortDir === 'asc' ? 'arrowUp' : 'arrowDown'} size={12} />}
+      </button>
+    </th>
   );
 }
 
-const pagerBtn =
-  'px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer transition-colors duration-150 border';
-
-export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
+export default function AnomaliesPage({ uploadState, onNavigate }: AnomaliesPageProps) {
   const [sortCol, setSortCol] = useState<SortColumn>('confidence');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
   const [pageSize, setPageSize] = useState<PageSize>(100);
   const [page, setPage] = useState(1);
 
-  const results = uploadState.results ?? [];
+  const results = useMemo(() => uploadState.results ?? [], [uploadState.results]);
 
   const flaggedRows = useMemo(
     () => results.filter((r) => r.review_priority !== 'low'),
     [results]
   );
+
+  const highCount = useMemo(() => flaggedRows.filter((r) => r.review_priority === 'high').length, [flaggedRows]);
 
   const sortedRows = useMemo(() => {
     const rows = [...flaggedRows];
@@ -132,112 +130,77 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
 
   if (results.length === 0) {
     return (
-      <div className="space-y-4">
-        <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
-          &gt; 01 ANOMALIES · DISPUTE_QUEUE.ALL
-        </h1>
-        <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-          <div className="p-10 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
-            NO SIGNAL — INGEST AN INVOICE ON 00 OVERVIEW
-          </div>
+      <div className="space-y-6">
+        <PageHeader title="Disputes" sub="Every shipment the audit flagged, with the evidence for a claim." />
+        <section className="card">
+          <EmptyState onGoToOverview={() => onNavigate('overview')}>
+            No invoice scored yet. Flagged shipments appear here once one is.
+          </EmptyState>
         </section>
       </div>
     );
   }
 
-  const thBase = 'px-4 py-2 text-left tracking-widest whitespace-nowrap';
-  const thSortable = `${thBase} cursor-pointer select-none`;
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
-          &gt; 01 ANOMALIES · DISPUTE_QUEUE.ALL
-        </h1>
-        <p className="text-[10px] tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
-          {flaggedRows.length.toLocaleString()} / {results.length.toLocaleString()} FLAGGED · CLICK ROW TO COPY
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Disputes"
+        sub={
+          <span className="tnum">
+            {flaggedRows.length.toLocaleString()} of {results.length.toLocaleString()} shipments flagged
+            {highCount > 0 && <> · {highCount.toLocaleString()} high priority</>}. Select a row to copy its details.
+          </span>
+        }
+      />
 
-      <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-        {/* Toolbar */}
-        <div
-          className="px-4 py-2 border-b flex items-center justify-between gap-3 flex-wrap text-[10px] tracking-widest"
-          style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
-        >
-          <span>&gt; TBL.01 · DISPUTE_QUEUE.ALL</span>
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="hidden sm:inline">
-              SORT BY <span style={{ color: 'var(--text)' }}>{sortCol.toUpperCase()}</span>{' '}
-              <span style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>{sortDir === 'asc' ? '▲' : '▼'}</span>
+      <section className="card overflow-hidden" aria-label="Flagged shipments">
+        <div className="card-head px-[22px] pb-3 pt-[22px]">
+          <p className="text-[14px]" style={{ color: 'var(--muted)' }}>
+            Sorted by <span style={{ color: 'var(--ink)' }}>{SORT_NAME[sortCol]}</span>,{' '}
+            {sortDir === 'asc' ? 'lowest' : 'highest'} first
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="page-size" className="text-[13px]" style={{ color: 'var(--muted)' }}>Rows per page</label>
+            <span className="relative inline-flex">
+              <select
+                id="page-size"
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value) as PageSize)}
+                className="select"
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+              <Icon name="chevronDown" size={14} className="pointer-events-none absolute right-3 top-[9px]" style={{ color: 'var(--muted)' }} />
             </span>
-            <label htmlFor="page-size" className="tracking-widest">ROWS</label>
-            <select
-              id="page-size"
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value) as PageSize)}
-              aria-label="Rows per page"
-              className="border px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
-              style={{ background: 'var(--panel)', borderColor: 'var(--border-2)', color: 'var(--text)' }}
-            >
-              {PAGE_SIZE_OPTIONS.map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
             <CopyTableButton rows={sortedRows} />
+            <FlagInfoPopover />
           </div>
         </div>
 
-        {/* Table */}
         <div className="overflow-x-auto">
-          <table className="w-full text-[11.5px] font-jb" role="table" aria-label="Flagged shipments sortable table">
+          <table className="table" aria-label="Flagged shipments sortable table">
             <thead>
-              <tr className="border-b text-[9px]" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
-                <th scope="col" className={thBase}>SHIPMENT_ID</th>
-                <th scope="col" className={thBase}>SVC</th>
-                <th scope="col" className={thBase}>DIMS</th>
-                <th scope="col" className={`${thBase} text-right`}>LB</th>
-                <th scope="col" className={thBase}>Z</th>
-                <th
-                  scope="col"
-                  className={`${thSortable} text-right`}
-                  onClick={() => handleSort('actual')}
-                  aria-sort={sortCol === 'actual' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                >
-                  ACT<SortMark col="actual" sortCol={sortCol} sortDir={sortDir} />
-                </th>
-                <th scope="col" className={`${thBase} text-right`}>PRED</th>
-                <th
-                  scope="col"
-                  className={`${thSortable} text-right`}
-                  onClick={() => handleSort('gap')}
-                  aria-sort={sortCol === 'gap' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                >
-                  RESID<SortMark col="gap" sortCol={sortCol} sortDir={sortDir} />
-                </th>
-                <th
-                  scope="col"
-                  className={thSortable}
-                  onClick={() => handleSort('flag')}
-                  aria-sort={sortCol === 'flag' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                >
-                  FLAG<SortMark col="flag" sortCol={sortCol} sortDir={sortDir} />
-                </th>
-                <th
-                  scope="col"
-                  className={`${thSortable} text-right`}
-                  onClick={() => handleSort('confidence')}
-                  aria-sort={sortCol === 'confidence' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                >
-                  CONF<SortMark col="confidence" sortCol={sortCol} sortDir={sortDir} />
-                </th>
+              <tr>
+                <th scope="col">Tracking #</th>
+                <th scope="col">Service</th>
+                <th scope="col">Zone</th>
+                <th scope="col" className="num">Dims (cm)</th>
+                <th scope="col" className="num">Weight</th>
+                <th scope="col">Billed against range</th>
+                <SortHeader col="actual" label="Billed" align="right" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                <th scope="col" className="num">Predicted range</th>
+                <SortHeader col="gap" label="Over ceiling" align="right" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                <SortHeader col="flag" label="Priority" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
+                <SortHeader col="confidence" label="Anomaly" align="right" sortCol={sortCol} sortDir={sortDir} onSort={handleSort} />
               </tr>
             </thead>
             <tbody>
               {sortedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
-                    NO FLAGGED SHIPMENTS
+                  <td colSpan={11} style={{ color: 'var(--muted)' }}>
+                    Nothing flagged. Every shipment on this invoice landed inside the model's range.
                   </td>
                 </tr>
               ) : (
@@ -249,44 +212,33 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
                     <tr
                       key={row.row_index}
                       onClick={() => setSelectedRowIndex(isSelected ? null : row.row_index)}
-                      className="border-b cursor-pointer transition-colors duration-150"
-                      style={{
-                        borderColor: 'var(--border)',
-                        background: isSelected ? 'var(--row-hov)' : 'transparent',
-                      }}
-                      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--row-hov)'; }}
-                      onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+                      aria-selected={isSelected}
+                      className="row-click"
                     >
-                      <td className="px-4 py-1.5 tabular-nums">
+                      <td className="mono">
                         {row.tracking_number ?? <span className="italic opacity-60">no tracking #</span>}
                       </td>
-                      <td className="px-4 py-1.5" style={{ color: 'var(--muted)' }}>{row.service_type}</td>
-                      <td className="px-4 py-1.5 tabular-nums" style={{ color: 'var(--muted)' }}>
-                        {row.dim_length}×{row.dim_width}×{row.dim_height}
+                      <td style={{ color: 'var(--muted)' }}>{row.service_type}</td>
+                      <td style={{ color: 'var(--muted)' }}>{zoneName(row.zone)}</td>
+                      <td className="num" style={{ color: 'var(--muted)' }}>
+                        {row.dim_length || row.dim_width || row.dim_height
+                          ? `${row.dim_length}×${row.dim_width}×${row.dim_height}`
+                          : '—'}
                       </td>
-                      <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
-                        {row.weight_lbs}
+                      <td className="num" style={{ color: 'var(--muted)' }}>
+                        {row.weight_lbs ? <>{row.weight_lbs} <span style={{ color: 'var(--faint)' }}>lb</span></> : '—'}
                       </td>
-                      <td className="px-4 py-1.5" style={{ color: 'var(--muted)' }}>{row.zone}</td>
-                      <td className="px-4 py-1.5 tabular-nums text-right">
-                        {formatDollars(row.actual_net_charge)}
+                      <td><IntervalStrip row={row} /></td>
+                      <td className="num">{formatDollars(row.actual_net_charge)}</td>
+                      <td className="num" style={{ color: 'var(--muted)' }}>
+                        {formatDollars(row.charge_lower_95)}–{formatDollars(row.charge_upper_95)}
                       </td>
-                      <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
-                        {formatDollars(row.charge_lower_95)}
-                        <span className="mx-0.5 opacity-50">–</span>
-                        {formatDollars(row.charge_upper_95)}
+                      <td className="num" style={{ color: gap > 0 ? 'var(--over)' : 'var(--muted)' }}>
+                        {gap > 0 ? `+${formatDollars(gap)}` : formatDollars(0)}
                       </td>
-                      <td
-                        className="px-4 py-1.5 tabular-nums text-right"
-                        style={{ color: gap > 0 ? 'var(--crit)' : gap < 0 ? 'var(--accent)' : 'var(--muted)' }}
-                      >
-                        {gap >= 0 ? '+' : ''}{formatDollars(gap)}
-                      </td>
-                      <td className="px-4 py-1.5">
-                        <FlagCell row={row} />
-                      </td>
-                      <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
-                        {conf > 0 ? `${Math.round(conf * 100)}%` : '—'}
+                      <td><PriorityTag row={{ ...row, anomaly_score: null }} /></td>
+                      <td className="num" style={{ color: 'var(--muted)' }}>
+                        {row.anomaly_score != null ? `${Math.round(conf * 100)}%` : '—'}
                       </td>
                     </tr>
                   );
@@ -296,78 +248,28 @@ export default function AnomaliesPage({ uploadState }: AnomaliesPageProps) {
           </table>
         </div>
 
-        {/* Pagination footer */}
+        {selectedRow && <RowCopyBar row={selectedRow} onDismiss={() => setSelectedRowIndex(null)} />}
+
         {sortedRows.length > 0 && (
           <div
-            className="px-4 py-2 border-t flex items-center justify-between gap-3 flex-wrap text-[10px] tracking-widest"
-            style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
+            className="flex flex-wrap items-center justify-between gap-3 px-[22px] py-3"
+            style={{ borderTop: '1px solid var(--line)' }}
           >
-            <span className="tabular-nums">
-              SHOW <span style={{ color: 'var(--text)' }}>{(pageStart + 1).toLocaleString()}</span>
-              <span className="opacity-50">–</span>
-              <span style={{ color: 'var(--text)' }}>{pageEnd.toLocaleString()}</span>{' '}
-              / <span style={{ color: 'var(--text)' }}>{sortedRows.length.toLocaleString()}</span>
+            <span className="tnum text-[13px]" style={{ color: 'var(--muted)' }}>
+              <span style={{ color: 'var(--ink)' }}>{(pageStart + 1).toLocaleString()}–{pageEnd.toLocaleString()}</span>{' '}
+              of {sortedRows.length.toLocaleString()}
             </span>
             <div className="flex items-center gap-1">
-              <button type="button" onClick={() => setPage(1)} disabled={page === 1} aria-label="First page"
-                className={pagerBtn}
-                style={{ borderColor: 'var(--border-2)', background: 'transparent', color: page === 1 ? 'var(--muted)' : 'var(--text)', opacity: page === 1 ? 0.4 : 1 }}>
-                «
+              <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
+                aria-label="Previous page" className="btn btn-quiet btn-sm">
+                <Icon name="chevronLeft" size={14} /> Previous
               </button>
-              <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} aria-label="Previous page"
-                className={pagerBtn}
-                style={{ borderColor: 'var(--border-2)', background: 'transparent', color: page === 1 ? 'var(--muted)' : 'var(--text)', opacity: page === 1 ? 0.4 : 1 }}>
-                ‹ PREV
-              </button>
-              <span className="px-3 tabular-nums">
-                PG <span style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>{page}</span> / {totalPages.toLocaleString()}
+              <span className="tnum px-2 text-[13px]" style={{ color: 'var(--muted)' }}>
+                Page <span style={{ color: 'var(--ink)' }}>{page}</span> of {totalPages.toLocaleString()}
               </span>
-              <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages} aria-label="Next page"
-                className={pagerBtn}
-                style={{ borderColor: 'var(--border-2)', background: 'transparent', color: page >= totalPages ? 'var(--muted)' : 'var(--text)', opacity: page >= totalPages ? 0.4 : 1 }}>
-                NEXT ›
-              </button>
-              <button type="button" onClick={() => setPage(totalPages)} disabled={page >= totalPages} aria-label="Last page"
-                className={pagerBtn}
-                style={{ borderColor: 'var(--border-2)', background: 'transparent', color: page >= totalPages ? 'var(--muted)' : 'var(--text)', opacity: page >= totalPages ? 0.4 : 1 }}>
-                »
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Selected row copy bar */}
-        {selectedRow && (
-          <div
-            className="px-4 py-2 border-t flex items-center justify-between gap-3 flex-wrap text-[11px]"
-            style={{ borderColor: 'var(--border)', background: 'var(--row-hov)' }}
-          >
-            <span style={{ color: 'var(--muted)' }}>
-              SELECTED <span style={{ color: 'var(--text)' }}>{selectedRow.tracking_number ?? `row #${selectedRow.row_index}`}</span>
-            </span>
-            <div className="flex items-center gap-2 flex-wrap">
-              <CopyButton text={escapeFormula(selectedRow.tracking_number ?? '')} label="Tracking #" />
-              <CopyButton text={formatDollars(selectedRow.actual_net_charge)} label="Actual" />
-              <CopyButton
-                text={`${formatDollars(selectedRow.charge_lower_95)} – ${formatDollars(selectedRow.charge_upper_95)}`}
-                label="Predicted Range"
-              />
-              <CopyButton
-                text={`${(selectedRow.actual_net_charge - selectedRow.charge_upper_95) >= 0 ? '+' : ''}${formatDollars(selectedRow.actual_net_charge - selectedRow.charge_upper_95)}`}
-                label="Gap"
-              />
-              <CopyButton
-                text={`${escapeFormula(selectedRow.tracking_number ?? '')}\t${escapeFormula(selectedRow.service_type)}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.charge_lower_95)} – ${formatDollars(selectedRow.charge_upper_95)}\t${selectedRow.review_priority.toUpperCase()}`}
-                label="Full Row"
-              />
-              <button
-                type="button"
-                onClick={() => setSelectedRowIndex(null)}
-                className="px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
-                style={{ color: 'var(--muted)' }}
-                aria-label="Dismiss"
-              >
-                ×
+              <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                aria-label="Next page" className="btn btn-quiet btn-sm">
+                Next <Icon name="chevronRight" size={14} />
               </button>
             </div>
           </div>

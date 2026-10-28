@@ -1,8 +1,11 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import type { ShipmentResult } from '../../types/api';
-import { formatDollars } from '../../lib/metrics';
+import { formatDollars, zoneName } from '../../lib/metrics';
 import { escapeFormula } from '../../lib/export';
 import CopyButton, { CopyTableButton } from '../ui/CopyButton';
+import PriorityTag from '../ui/PriorityTag';
+import IntervalStrip from '../ui/IntervalStrip';
+import Icon from '../ui/Icon';
 
 type FilterValue = 'all' | 'high' | 'medium';
 
@@ -10,39 +13,11 @@ interface AnomalyTableProps {
   results: ShipmentResult[];
   /** Limit displayed rows. Defaults to 100 — pass undefined for unbounded. */
   pageSize?: number;
-  /** Overrides the panel title, e.g. `> TBL.01 · DISPUTE_QUEUE.PEEK`. */
-  title?: string;
+  /** Shows a "View all" action in the header. */
+  onViewAll?: () => void;
 }
 
-function FlagCell({ row }: { row: ShipmentResult }) {
-  if (row.review_priority === 'high') {
-    return (
-      <span className="tabular-nums whitespace-nowrap" style={{ color: 'var(--crit)' }}>
-        ▲ HIGH
-        {row.anomaly_score != null && (
-          <span className="ml-1 opacity-70">{Math.round(row.anomaly_score * 100)}%</span>
-        )}
-      </span>
-    );
-  }
-  if (row.review_priority === 'medium') {
-    return (
-      <span className="tabular-nums whitespace-nowrap" style={{ color: 'var(--warn)' }}>
-        ■ MEDIUM
-        {row.anomaly_score != null && (
-          <span className="ml-1 opacity-70">{Math.round(row.anomaly_score * 100)}%</span>
-        )}
-      </span>
-    );
-  }
-  return (
-    <span className="whitespace-nowrap" style={{ color: 'var(--muted)' }}>
-      · LOW
-    </span>
-  );
-}
-
-function FlagInfoPopover() {
+export function FlagInfoPopover() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -51,8 +26,15 @@ function FlagInfoPopover() {
     function onClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
     document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onClick);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [open]);
 
   return (
@@ -61,47 +43,90 @@ function FlagInfoPopover() {
         type="button"
         onClick={() => setOpen(v => !v)}
         aria-label="Explain priority levels"
-        className="px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
-        style={{ color: 'var(--muted)' }}
+        aria-expanded={open}
+        className="icon-btn h-[30px] w-[30px]"
       >
-        ? FLAGS
+        <Icon name="info" size={16} />
       </button>
       {open && (
-        <div
-          role="tooltip"
-          className="absolute right-0 top-8 z-50 w-80 border p-3 text-[11px]"
-          style={{ borderColor: 'var(--border-2)', background: 'var(--panel)', color: 'var(--text)' }}
-        >
-          <p className="text-[10px] tracking-widest mb-3" style={{ color: 'var(--muted)' }}>&gt; PRIORITY · AUDIT TRIAGE</p>
-          <div className="mb-3">
-            <p style={{ color: 'var(--crit)' }}>▲ HIGH</p>
-            <p className="leading-snug mt-1" style={{ color: 'var(--muted)' }}>
-              Two or more audit signals fired: DIM-flag disagrees with FedEx, actual charge above the 95% prediction interval, or unsupervised anomaly score above threshold.
+        <div role="tooltip" className="float absolute right-0 top-10 z-50 w-[320px] p-4 text-[14px]">
+          <p style={{ color: 'var(--ink)' }}>How a shipment gets flagged</p>
+          <p className="meta mt-1">Three checks run on every row:</p>
+          <ul className="mt-2 space-y-1.5" style={{ color: 'var(--muted)' }}>
+            <li>The DIM-weight call disagrees with FedEx's.</li>
+            <li>The bill is above the model's 95% prediction interval.</li>
+            <li>The shipment's profile is unusual (anomaly score over threshold).</li>
+          </ul>
+          <div className="mt-3 space-y-2">
+            <p className="flex items-start gap-2">
+              <span className="pill pill-over">High</span>
+              <span style={{ color: 'var(--muted)' }}>Two or more checks fired.</span>
+            </p>
+            <p className="flex items-start gap-2">
+              <span className="pill pill-warn">Medium</span>
+              <span style={{ color: 'var(--muted)' }}>One check fired. Review when there's time.</span>
             </p>
           </div>
-          <div>
-            <p style={{ color: 'var(--warn)' }}>■ MEDIUM</p>
-            <p className="leading-snug mt-1" style={{ color: 'var(--muted)' }}>
-              Exactly one audit signal fired. Suspicious but not corroborated — review when capacity allows.
-            </p>
-          </div>
+          <p className="meta mt-3">The percentage is the anomaly score.</p>
         </div>
       )}
     </div>
   );
 }
 
+/** The copy actions for one selected row. */
+export function RowCopyBar({ row, onDismiss }: { row: ShipmentResult; onDismiss: () => void }) {
+  const gap = row.actual_net_charge - row.charge_upper_95;
+  return (
+    <div
+      className="flex flex-wrap items-center justify-between gap-3 px-[22px] py-3"
+      style={{ background: 'var(--raised)', borderTop: '1px solid var(--line)' }}
+    >
+      <span className="text-[14px]" style={{ color: 'var(--muted)' }}>
+        Selected{' '}
+        <span className="mono" style={{ color: 'var(--ink)' }}>{row.tracking_number ?? `row ${row.row_index}`}</span>
+      </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <CopyButton text={escapeFormula(row.tracking_number ?? '')} label="Tracking #" />
+        <CopyButton text={formatDollars(row.actual_net_charge)} label="Billed" />
+        <CopyButton
+          text={`${formatDollars(row.charge_lower_95)} – ${formatDollars(row.charge_upper_95)}`}
+          label="Predicted range"
+        />
+        <CopyButton text={`${gap >= 0 ? '+' : ''}${formatDollars(gap)}`} label="Gap" />
+        <CopyButton
+          text={`${escapeFormula(row.tracking_number ?? '')}\t${escapeFormula(row.service_type)}\t${formatDollars(row.actual_net_charge)}\t${formatDollars(row.charge_lower_95)} – ${formatDollars(row.charge_upper_95)}\t${row.review_priority.toUpperCase()}`}
+          label="Full row"
+        />
+        <button type="button" onClick={onDismiss} className="icon-btn h-[30px] w-[30px]" aria-label="Dismiss">
+          <Icon name="x" size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const DEFAULT_PAGE_SIZE = 100;
 
-export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, title }: AnomalyTableProps) {
+export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, onViewAll }: AnomalyTableProps) {
   const [filterValue, setFilterValue] = useState<FilterValue>('all');
   // Selection is by row_index — tracking_number can be null/duplicate in real data
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
 
+  // Most money over the ceiling first — the rows worth a claim
   const flaggedRows = useMemo(
-    () => results.filter((r) => r.review_priority !== 'low'),
+    () =>
+      results
+        .filter((r) => r.review_priority !== 'low')
+        .sort((a, b) => (b.actual_net_charge - b.charge_upper_95) - (a.actual_net_charge - a.charge_upper_95)),
     [results],
   );
+
+  const counts = useMemo(() => {
+    let high = 0;
+    for (const r of flaggedRows) if (r.review_priority === 'high') high++;
+    return { all: flaggedRows.length, high, medium: flaggedRows.length - high };
+  }, [flaggedRows]);
 
   const filteredRows = useMemo(() => {
     switch (filterValue) {
@@ -121,79 +146,53 @@ export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, ti
     [selectedRowIndex, displayRows],
   );
 
-  if (results.length === 0) {
-    return (
-      <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-        <div className="px-4 py-2 border-b text-[10px] tracking-widest flex justify-between" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
-          <span>{title ?? '> TBL.01 · DISPUTE_QUEUE.PEEK'}</span>
-          <span>ORDER.BY priority DESC</span>
-        </div>
-        <div className="p-10 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
-          NO SIGNAL — INGEST AN INVOICE
-        </div>
-      </section>
-    );
-  }
-
-  const headerTitle = title ?? `> TBL.01 · DISPUTE_QUEUE${pageSize != null ? '.PEEK' : '.ALL'}`;
-
   return (
-    <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-      {/* Toolbar */}
-      <div
-        className="px-4 py-2 border-b flex items-center justify-between gap-3 flex-wrap text-[10px] tracking-widest"
-        style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
-      >
-        <span>{headerTitle}</span>
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="hidden sm:inline">
-            {filteredRows.length.toLocaleString()} / {flaggedRows.length.toLocaleString()} FLAGGED
-            {flaggedRows.length > displayRows.length && (
-              <span className="opacity-60 ml-1">· FIRST {displayRows.length}</span>
-            )}
-          </span>
+    <section className="card flex h-full flex-col overflow-hidden" aria-label="Dispute queue">
+      <div className="card-head px-[22px] pb-3 pt-[22px]">
+        <div>
+          <h2 className="card-title">Dispute queue</h2>
+          <p className="meta tnum mt-0.5">
+            {results.length === 0
+              ? 'Most money over the ceiling first'
+              : `Showing ${displayRows.length.toLocaleString()} of ${filteredRows.length.toLocaleString()} · most money over the ceiling first`}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="seg" role="group" aria-label="Filter by priority">
+            {(['all', 'high', 'medium'] as const).map((f) => (
+              <button key={f} type="button" aria-pressed={filterValue === f} onClick={() => setFilterValue(f)}>
+                {f === 'all' ? 'All' : f === 'high' ? 'High' : 'Medium'}{' '}
+                <span className="tnum" style={{ color: 'var(--faint)' }}>{counts[f].toLocaleString()}</span>
+              </button>
+            ))}
+          </div>
           <CopyTableButton rows={filteredRows} />
           <FlagInfoPopover />
-          <label htmlFor="anomaly-filter" className="text-[10px] tracking-widest" style={{ color: 'var(--muted)' }}>
-            FILTER
-          </label>
-          <select
-            id="anomaly-filter"
-            value={filterValue}
-            onChange={(e) => setFilterValue(e.target.value as FilterValue)}
-            aria-label="Filter anomalies by priority"
-            className="border px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
-            style={{ background: 'var(--panel)', borderColor: 'var(--border-2)', color: 'var(--text)' }}
-          >
-            <option value="all">ALL</option>
-            <option value="high">HIGH</option>
-            <option value="medium">MEDIUM</option>
-          </select>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-[11.5px] font-jb" role="table" aria-label="Anomaly detail table">
+      <div className="min-w-0 flex-1 overflow-x-auto">
+        <table className="table" aria-label="Flagged shipments, most over the ceiling first">
           <thead>
-            <tr className="border-b text-[9px] tracking-widest" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
-              <th className="px-4 py-2 text-left">SHIPMENT_ID</th>
-              <th className="px-4 py-2 text-left">SVC</th>
-              <th className="px-4 py-2 text-left">DIMS</th>
-              <th className="px-4 py-2 text-right">LB</th>
-              <th className="px-4 py-2 text-left">Z</th>
-              <th className="px-4 py-2 text-right">ACT</th>
-              <th className="px-4 py-2 text-right">PRED</th>
-              <th className="px-4 py-2 text-right">RESID</th>
-              <th className="px-4 py-2 text-left">FLAG</th>
+            <tr>
+              <th scope="col">Tracking #</th>
+              <th scope="col">Service · zone</th>
+              <th scope="col">Billed against range</th>
+              <th scope="col" className="num">Billed</th>
+              <th scope="col" className="num">Over ceiling</th>
+              <th scope="col">Priority</th>
             </tr>
           </thead>
           <tbody>
-            {displayRows.length === 0 ? (
+            {results.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
-                  NO ROWS MATCH FILTER
+                <td colSpan={6} style={{ color: 'var(--muted)', whiteSpace: 'normal' }}>
+                  Flagged shipments land here, the costliest first.
                 </td>
+              </tr>
+            ) : displayRows.length === 0 ? (
+              <tr>
+                <td colSpan={6} style={{ color: 'var(--muted)' }}>No shipments at this priority.</td>
               </tr>
             ) : (
               displayRows.map((row) => {
@@ -204,41 +203,20 @@ export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, ti
                 return (
                   <tr
                     key={row.row_index}
-                    onClick={() =>
-                      setSelectedRowIndex(on ? null : row.row_index)
-                    }
-                    className="border-b cursor-pointer transition-colors duration-150"
-                    style={{
-                      borderColor: 'var(--border)',
-                      background: on ? 'var(--row-hov)' : 'transparent',
-                    }}
-                    onMouseEnter={(e) => { if (!on) e.currentTarget.style.background = 'var(--row-hov)'; }}
-                    onMouseLeave={(e) => { if (!on) e.currentTarget.style.background = 'transparent'; }}
+                    onClick={() => setSelectedRowIndex(on ? null : row.row_index)}
+                    aria-selected={on}
+                    className="row-click"
                   >
-                    <td className="px-4 py-1.5 tabular-nums">
+                    <td className="mono">
                       {row.tracking_number ?? <span className="italic opacity-60">no tracking #</span>}
                     </td>
-                    <td className="px-4 py-1.5" style={{ color: 'var(--muted)' }}>{row.service_type}</td>
-                    <td className="px-4 py-1.5 tabular-nums" style={{ color: 'var(--muted)' }}>
-                      {row.dim_length}×{row.dim_width}×{row.dim_height}
+                    <td style={{ color: 'var(--muted)' }}>{row.service_type} · {zoneName(row.zone)}</td>
+                    <td><IntervalStrip row={row} /></td>
+                    <td className="num">{formatDollars(row.actual_net_charge)}</td>
+                    <td className="num" style={{ color: resid > 0 ? 'var(--over)' : 'var(--muted)' }}>
+                      {resid > 0 ? `+${formatDollars(resid)}` : formatDollars(0)}
                     </td>
-                    <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
-                      {row.weight_lbs}
-                    </td>
-                    <td className="px-4 py-1.5" style={{ color: 'var(--muted)' }}>{row.zone}</td>
-                    <td className="px-4 py-1.5 tabular-nums text-right">{formatDollars(row.actual_net_charge)}</td>
-                    <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
-                      {formatDollars(row.charge_lower_95)}<span className="mx-0.5 opacity-50">–</span>{formatDollars(row.charge_upper_95)}
-                    </td>
-                    <td
-                      className="px-4 py-1.5 tabular-nums text-right"
-                      style={{ color: resid > 0 ? 'var(--crit)' : resid < 0 ? 'var(--accent)' : 'var(--muted)' }}
-                    >
-                      {resid >= 0 ? '+' : ''}{formatDollars(resid)}
-                    </td>
-                    <td className="px-4 py-1.5">
-                      <FlagCell row={row} />
-                    </td>
+                    <td><PriorityTag row={row} /></td>
                   </tr>
                 );
               })
@@ -247,36 +225,14 @@ export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, ti
         </table>
       </div>
 
-      {/* Selected row copy bar */}
-      {selectedRow && (
-        <div
-          className="px-4 py-2 border-t flex items-center justify-between gap-3 flex-wrap text-[11px]"
-          style={{ borderColor: 'var(--border)', background: 'var(--row-hov)' }}
-        >
-          <span style={{ color: 'var(--muted)' }}>
-            SELECTED <span style={{ color: 'var(--text)' }}>{selectedRow.tracking_number ?? `row #${selectedRow.row_index}`}</span>
-          </span>
-          <div className="flex items-center gap-2 flex-wrap">
-            <CopyButton text={escapeFormula(selectedRow.tracking_number ?? '')} label="Tracking #" />
-            <CopyButton text={formatDollars(selectedRow.actual_net_charge)} label="Actual" />
-            <CopyButton
-              text={`${formatDollars(selectedRow.charge_lower_95)} – ${formatDollars(selectedRow.charge_upper_95)}`}
-              label="Predicted Range"
-            />
-            <CopyButton
-              text={`${escapeFormula(selectedRow.tracking_number ?? '')}\t${escapeFormula(selectedRow.service_type)}\t${formatDollars(selectedRow.actual_net_charge)}\t${formatDollars(selectedRow.charge_lower_95)} – ${formatDollars(selectedRow.charge_upper_95)}\t${selectedRow.review_priority.toUpperCase()}`}
-              label="Full Row"
-            />
-            <button
-              type="button"
-              onClick={() => setSelectedRowIndex(null)}
-              className="px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
-              style={{ color: 'var(--muted)' }}
-              aria-label="Dismiss"
-            >
-              ×
-            </button>
-          </div>
+      {selectedRow && <RowCopyBar row={selectedRow} onDismiss={() => setSelectedRowIndex(null)} />}
+
+      {onViewAll && filteredRows.length > displayRows.length && (
+        <div className="px-[22px] py-3" style={{ borderTop: '1px solid var(--line)' }}>
+          <button type="button" className="btn btn-quiet btn-sm -ml-3" onClick={onViewAll}>
+            View all {filteredRows.length.toLocaleString()} in Disputes
+            <Icon name="arrowRight" size={14} />
+          </button>
         </div>
       )}
     </section>

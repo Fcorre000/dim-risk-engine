@@ -1,223 +1,175 @@
+import { useId, useState } from 'react';
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
 } from 'recharts';
 import type { TrendsDataPoint } from '../../lib/metrics';
-import { formatDollars } from '../../lib/metrics';
+import { formatDollars, formatDollarsShort } from '../../lib/metrics';
 
 interface TrendsChartProps {
   data: TrendsDataPoint[];
 }
 
-interface ChargeTooltipProps {
+const AXIS_TICK = { fill: 'var(--faint)', fontSize: 12, fontFamily: 'Manrope, sans-serif' };
+
+interface TipProps {
   active?: boolean;
-  payload?: Array<{ name: string; value: number; color: string }>;
+  payload?: Array<{ payload: TrendsDataPoint }>;
   label?: string;
 }
 
-function TooltipShell({ children }: { children: React.ReactNode }) {
+function TooltipShell({ label, children }: { label?: string; children: React.ReactNode }) {
   return (
-    <div
-      className="border px-3 py-2 text-[11px] shadow-none font-jb"
-      style={{
-        background: 'var(--panel)',
-        borderColor: 'var(--border-2)',
-        color: 'var(--text)',
-      }}
-    >
-      {children}
+    <div className="float min-w-[200px] p-4 text-[14px]">
+      <p className="text-[13px]" style={{ color: 'var(--muted)' }}>{label}</p>
+      <dl className="mt-3 space-y-2">{children}</dl>
     </div>
   );
 }
 
-function ChargeTooltip({ active, payload, label }: ChargeTooltipProps) {
-  if (!active || !payload?.length) return null;
-  const actual = payload.find((p) => p.name === 'FedEx Billed')?.value ?? 0;
-  const predicted = payload.find((p) => p.name === 'Model Predicted')?.value ?? 0;
-  const gap = actual - predicted;
+function TipRow({ dot, name, value }: { dot?: string; name: string; value: string }) {
   return (
-    <TooltipShell>
-      <p className="font-semibold mb-1" style={{ color: 'var(--text)' }}>{label}</p>
-      <p style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>BILLED {formatDollars(actual)}</p>
-      <p style={{ color: 'var(--muted)' }}>PRED {formatDollars(predicted)}</p>
-      {gap !== 0 && (
-        <p className="mt-1 font-medium" style={{ color: gap > 0 ? 'var(--crit)' : 'var(--muted)' }}>
-          GAP {gap >= 0 ? '+' : '-'}{formatDollars(Math.abs(gap))}
-        </p>
-      )}
+    <div className="flex items-center justify-between gap-4">
+      <dt className="flex items-center gap-2" style={{ color: 'var(--ink)' }}>
+        {dot && <span className="dot" style={{ background: dot }} />}
+        {name}
+      </dt>
+      <dd className="tnum" style={{ color: 'var(--ink)' }}>{value}</dd>
+    </div>
+  );
+}
+
+function ChargeTooltip({ active, payload, label }: TipProps) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload;
+  const gap = p.actual - p.predicted;
+  return (
+    <TooltipShell label={label}>
+      <TipRow dot="var(--billed)" name="Billed" value={formatDollars(p.actual)} />
+      <TipRow dot="var(--faint)" name="Model" value={formatDollars(p.predicted)} />
+      <div className="flex items-center justify-between gap-4 pt-1">
+        <dt style={{ color: 'var(--muted)' }}>Gap</dt>
+        <dd className="tnum" style={{ color: gap > 0 ? 'var(--over)' : 'var(--ink)' }}>
+          {gap >= 0 ? '+' : '-'}{formatDollars(Math.abs(gap))}
+        </dd>
+      </div>
     </TooltipShell>
   );
 }
 
-interface DisputeTooltipProps {
-  active?: boolean;
-  payload?: Array<{ name: string; value: number }>;
-  label?: string;
-}
-
-function DisputeTooltip({ active, payload, label }: DisputeTooltipProps) {
+function DisputeTooltip({ active, payload, label }: TipProps) {
   if (!active || !payload?.length) return null;
-  const monthly = payload.find((p) => p.name === 'New')?.value ?? 0;
-  const cumulative = payload.find((p) => p.name === 'Cumulative')?.value ?? 0;
+  const p = payload[0].payload;
   return (
-    <TooltipShell>
-      <p className="font-semibold mb-1" style={{ color: 'var(--text)' }}>{label}</p>
-      <p style={{ color: 'var(--crit)' }}>NEW {monthly}</p>
-      <p style={{ color: 'var(--warn)' }}>CUM {cumulative}</p>
+    <TooltipShell label={label}>
+      <TipRow dot="var(--over)" name="High priority" value={p.disputeCount.toLocaleString()} />
+      <TipRow name="Running total" value={p.cumulativeDisputes.toLocaleString()} />
     </TooltipShell>
   );
 }
 
-function TrendsPanel({
-  title,
-  headerRight,
-  children,
-}: {
-  title: string;
-  headerRight?: string;
-  children: React.ReactNode;
+function Panel({ title, meta, legend, children }: {
+  title: string; meta: string; legend?: React.ReactNode; children: React.ReactNode;
 }) {
   return (
-    <section
-      className="border p-4"
-      style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
-    >
-      <div
-        className="flex items-center justify-between text-[10px] tracking-widest mb-3"
-        style={{ color: 'var(--muted)' }}
-      >
-        <span>{title}</span>
-        {headerRight && <span>{headerRight}</span>}
+    <section className="card card-pad min-w-0">
+      <div className="card-head">
+        <div>
+          <h2 className="card-title">{title}</h2>
+          <p className="meta mt-0.5">{meta}</p>
+        </div>
+        {legend}
       </div>
-      {children}
+      <div className="mt-5">{children}</div>
     </section>
   );
 }
 
+/** Show 4–8 flat labels whatever the period count; never rotate. */
+function tickInterval(n: number): number {
+  return n <= 8 ? 0 : Math.ceil(n / 7) - 1;
+}
+
 export default function TrendsChart({ data }: TrendsChartProps) {
+  const patternId = `th${useId().replace(/:/g, '')}`;
+  const [activeBar, setActiveBar] = useState<number | null>(null);
   const hasData = data.some((d) => d.actual > 0 || d.predicted > 0);
-  const densePoints = data.length > 10;
-  const minWidth = Math.max(600, data.length * 28);
+  const interval = tickInterval(data.length);
+  const total = data[data.length - 1]?.cumulativeDisputes ?? 0;
+
+  if (!hasData) {
+    return (
+      <section className="card card-pad">
+        <p style={{ color: 'var(--muted)' }}>No dated shipments to plot.</p>
+      </section>
+    );
+  }
 
   return (
-    <div className="space-y-4">
-      <TrendsPanel title="> FIG.03 · BILLED × PREDICTED / PERIOD" headerRight={`N=${data.length}`}>
-        {!hasData ? (
-          <div className="h-[280px] flex items-center justify-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
-            NO SIGNAL — INGEST AN INVOICE
+    <div className="grid gap-4 xl:grid-cols-2">
+      <Panel
+        title="Billed against the model"
+        meta={`${data.length} periods · gap is billed minus predicted`}
+        legend={
+          <div className="flex items-center gap-4 text-[13px]" style={{ color: 'var(--muted)' }}>
+            <span className="flex items-center gap-2"><span className="h-[2px] w-4 rounded" style={{ background: 'var(--billed)' }} />Billed</span>
+            <span className="flex items-center gap-2"><span className="h-[2px] w-4 rounded" style={{ background: 'var(--faint)' }} />Model</span>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <div style={{ minWidth }}>
-              <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={data} margin={{ top: 8, right: 16, bottom: densePoints ? 40 : 0, left: 16 }}>
-                  <CartesianGrid strokeDasharray="0" stroke="var(--border)" vertical={false} />
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: 'JetBrains Mono' }}
-                    axisLine={{ stroke: 'var(--border)' }}
-                    tickLine={false}
-                    angle={densePoints ? -45 : 0}
-                    textAnchor={densePoints ? 'end' : 'middle'}
-                    height={densePoints ? 60 : 30}
-                  />
-                  <YAxis
-                    tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-                    tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: 'JetBrains Mono' }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip content={<ChargeTooltip />} cursor={{ stroke: 'var(--border-2)' }} />
-                  <Legend
-                    wrapperStyle={{ fontSize: '10px', color: 'var(--muted)', paddingTop: '8px', letterSpacing: '0.1em', textTransform: 'uppercase' }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="actual"
-                    name="FedEx Billed"
-                    stroke="var(--accent)"
-                    strokeWidth={2}
-                    dot={{ fill: 'var(--accent)', r: 3, strokeWidth: 0 }}
-                    activeDot={{ r: 5, strokeWidth: 0 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="predicted"
-                    name="Model Predicted"
-                    stroke="var(--muted)"
-                    strokeWidth={1.5}
-                    strokeDasharray="4 4"
-                    dot={{ fill: 'var(--muted)', r: 2.5, strokeWidth: 0 }}
-                    activeDot={{ r: 4, strokeWidth: 0 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-      </TrendsPanel>
+        }
+      >
+        <ResponsiveContainer width="100%" height={280}>
+          <LineChart data={data} margin={{ top: 8, right: 28, bottom: 0, left: 0 }}>
+            <CartesianGrid stroke="var(--grid)" vertical={false} />
+            <XAxis dataKey="month" tick={AXIS_TICK} axisLine={{ stroke: 'var(--line-strong)' }} tickLine={false} interval={interval} minTickGap={12} />
+            <YAxis tickFormatter={(v) => formatDollarsShort(v)} tick={AXIS_TICK} axisLine={false} tickLine={false} width={52} />
+            <Tooltip content={<ChargeTooltip />} cursor={{ stroke: 'var(--line-strong)' }} />
+            <Line type="linear" dataKey="predicted" name="Model" stroke="var(--faint)" strokeWidth={1.5} dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: 'var(--faint)' }} isAnimationActive={false} />
+            <Line type="linear" dataKey="actual" name="Billed" stroke="var(--billed)" strokeWidth={2} dot={false} activeDot={{ r: 5, strokeWidth: 0, fill: 'var(--billed)' }} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </Panel>
 
-      <TrendsPanel title="> FIG.04 · DISPUTE.COUNT / PERIOD" headerRight={`N=${data.length}`}>
-        {!hasData ? (
-          <div className="h-[280px] flex items-center justify-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
-            NO SIGNAL — INGEST AN INVOICE
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <div style={{ minWidth }}>
-              <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={data} margin={{ top: 8, right: 16, bottom: densePoints ? 40 : 0, left: 16 }}>
-                  <CartesianGrid strokeDasharray="0" stroke="var(--border)" vertical={false} />
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: 'JetBrains Mono' }}
-                    axisLine={{ stroke: 'var(--border)' }}
-                    tickLine={false}
-                    angle={densePoints ? -45 : 0}
-                    textAnchor={densePoints ? 'end' : 'middle'}
-                    height={densePoints ? 60 : 30}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ fill: 'var(--muted)', fontSize: 10, fontFamily: 'JetBrains Mono' }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip content={<DisputeTooltip />} cursor={{ stroke: 'var(--border-2)' }} />
-                  <Legend
-                    wrapperStyle={{ fontSize: '10px', color: 'var(--muted)', paddingTop: '8px', letterSpacing: '0.1em', textTransform: 'uppercase' }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="disputeCount"
-                    name="New"
-                    stroke="var(--crit)"
-                    strokeWidth={2}
-                    dot={{ fill: 'var(--crit)', r: 3, strokeWidth: 0 }}
-                    activeDot={{ r: 5, strokeWidth: 0 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="cumulativeDisputes"
-                    name="Cumulative"
-                    stroke="var(--warn)"
-                    strokeWidth={1.5}
-                    strokeDasharray="4 4"
-                    dot={{ fill: 'var(--warn)', r: 2.5, strokeWidth: 0 }}
-                    activeDot={{ r: 4, strokeWidth: 0 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-      </TrendsPanel>
+      <Panel title="High-priority shipments" meta={`${total.toLocaleString()} across the file · per period`}>
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={data} margin={{ top: 8, right: 28, bottom: 0, left: 0 }} onMouseLeave={() => setActiveBar(null)}>
+            <defs>
+              <pattern id={patternId} width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <rect width="7" height="7" style={{ fill: 'var(--hatch-bg)' }} />
+                <line x1="0" y1="0" x2="0" y2="7" style={{ stroke: 'var(--hatch)' }} strokeWidth="1.5" />
+              </pattern>
+            </defs>
+            <CartesianGrid stroke="var(--grid)" vertical={false} />
+            <XAxis dataKey="month" tick={AXIS_TICK} axisLine={{ stroke: 'var(--line-strong)' }} tickLine={false} interval={interval} minTickGap={12} />
+            <YAxis allowDecimals={false} tick={AXIS_TICK} axisLine={false} tickLine={false} width={40} />
+            <Tooltip content={<DisputeTooltip />} cursor={false} />
+            <Bar
+              dataKey="disputeCount"
+              radius={[6, 6, 0, 0]}
+              maxBarSize={40}
+              isAnimationActive={false}
+              onMouseEnter={(_, i) => setActiveBar(i)}
+            >
+              {data.map((d, i) => (
+                <Cell
+                  key={d.month}
+                  fill={activeBar === i ? 'var(--over)' : `url(#${patternId})`}
+                  stroke="var(--over)"
+                  strokeWidth={activeBar === i ? 0 : 1}
+                  strokeOpacity={0.6}
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </Panel>
     </div>
   );
 }
