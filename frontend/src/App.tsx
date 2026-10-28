@@ -40,6 +40,8 @@ async function consumeNdjsonStream(
   let dimFlaggedCount = 0;
   let disputeCandidates = 0;
   let estRecoverable = 0;
+  let billedTotal = 0;
+  let predictedTotal = 0;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -81,12 +83,20 @@ async function consumeNdjsonStream(
           const gap = row.actual_net_charge - row.charge_upper_95;
           if (gap > 0) estRecoverable += gap;
         }
+        billedTotal += row.actual_net_charge;
+        predictedTotal += row.charge_predicted;
 
         const len = allResults.length;
 
         // Every 50 rows: update progress bar + streaming KPIs (cheap — just numbers)
         if (len % 50 === 0) {
-          const kpis = { dimFlaggedCount, disputeCandidates, estRecoverable: parseFloat(estRecoverable.toFixed(2)) };
+          const kpis = {
+            dimFlaggedCount,
+            disputeCandidates,
+            estRecoverable: parseFloat(estRecoverable.toFixed(2)),
+            billedTotal: parseFloat(billedTotal.toFixed(2)),
+            predictedTotal: parseFloat(predictedTotal.toFixed(2)),
+          };
           // Flush full results array every 500 rows for charts; KPIs update every 50
           const flushResults = len % 500 === 0;
           // flushSync forces React to commit to DOM synchronously — without it,
@@ -117,6 +127,8 @@ async function consumeNdjsonStream(
           dimFlaggedCount,
           disputeCandidates,
           estRecoverable: parseFloat(estRecoverable.toFixed(2)),
+          billedTotal: parseFloat(billedTotal.toFixed(2)),
+          predictedTotal: parseFloat(predictedTotal.toFixed(2)),
         },
         results: [...allResults],
       }));
@@ -254,20 +266,25 @@ export default function App() {
     }
   };
 
+  const navigate = (page: PageId) => {
+    setActivePage(page);
+    window.scrollTo({ top: 0 });
+  };
+
   const renderPage = () => {
     switch (activePage) {
       case 'overview':
-        return <OverviewPage uploadState={uploadState} onUpload={handleUpload} onDemoLoad={handleDemoLoad} />;
+        return <OverviewPage uploadState={uploadState} onUpload={handleUpload} onDemoLoad={handleDemoLoad} onNavigate={navigate} />;
       case 'anomalies':
-        return <AnomaliesPage uploadState={uploadState} />;
+        return <AnomaliesPage uploadState={uploadState} onNavigate={navigate} />;
       case 'by-zone':
-        return <ByZonePage uploadState={uploadState} />;
+        return <ByZonePage uploadState={uploadState} onNavigate={navigate} />;
       case 'by-state':
-        return <ByStatePage uploadState={uploadState} />;
+        return <ByStatePage uploadState={uploadState} onNavigate={navigate} />;
       case 'trends':
-        return <TrendsPage uploadState={uploadState} />;
+        return <TrendsPage uploadState={uploadState} onNavigate={navigate} />;
       case 'export':
-        return <ExportPage uploadState={uploadState} />;
+        return <ExportPage uploadState={uploadState} onNavigate={navigate} />;
       default:
         return null;
     }
@@ -279,20 +296,14 @@ export default function App() {
         <div
           role="status"
           aria-live="polite"
-          className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-2.5 px-4 py-2 border-b text-[10px] tracking-widest uppercase"
-          style={{
-            background: 'var(--panel)',
-            borderColor: 'var(--warn)',
-            color: 'var(--warn)',
-          }}
+          className="fixed left-1/2 top-3 z-50 flex max-w-[calc(100%-32px)] -translate-x-1/2 items-center gap-2.5 rounded-full px-4 py-2 text-[13px]"
+          style={{ background: 'var(--warn-bg)', color: 'var(--warn)', boxShadow: 'var(--float-shadow)' }}
         >
-          <span aria-hidden="true">◐</span>
-          <p>
-            SERVER.WARMING · AWAIT ~60s · DEMO WILL AUTOSTART
-          </p>
+          <span className="dot animate-pulse" style={{ background: 'var(--warn)' }} aria-hidden="true" />
+          <p>Waking the analysis server. The first request after a quiet spell takes about a minute.</p>
         </div>
       )}
-      <MainLayout activePage={activePage} onNavigate={setActivePage} uploadState={uploadState}>
+      <MainLayout activePage={activePage} onNavigate={navigate} uploadState={uploadState}>
         {renderPage()}
       </MainLayout>
     </ThemeProvider>

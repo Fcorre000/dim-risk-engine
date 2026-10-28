@@ -1,69 +1,59 @@
 import { useState, useMemo } from 'react';
-import type { UploadState } from '../types/api';
-import { computeGranularTrendsData, type TrendsGranularity } from '../lib/metrics';
+import type { PageId, UploadState } from '../types/api';
+import { computeGranularTrendsData, pickGranularity, type TrendsGranularity } from '../lib/metrics';
 import TrendsChart from '../components/charts/TrendsChart';
+import PageHeader from '../components/ui/PageHeader';
+import EmptyState from '../components/ui/EmptyState';
 
 interface TrendsPageProps {
   uploadState: UploadState;
+  onNavigate: (page: PageId) => void;
 }
 
-export default function TrendsPage({ uploadState }: TrendsPageProps) {
-  const [granularity, setGranularity] = useState<TrendsGranularity>('day');
-  const results = uploadState.results ?? [];
+const GRAINS: { id: TrendsGranularity; label: string }[] = [
+  { id: 'day', label: 'Daily' },
+  { id: 'week', label: 'Weekly' },
+  { id: 'month', label: 'Monthly' },
+];
+
+export default function TrendsPage({ uploadState, onNavigate }: TrendsPageProps) {
+  const results = useMemo(() => uploadState.results ?? [], [uploadState.results]);
+  const autoGrain = useMemo(() => pickGranularity(results), [results]);
+  const [choice, setChoice] = useState<TrendsGranularity | null>(null);
+  const granularity = choice ?? autoGrain;
   const trendsData = useMemo(
     () => computeGranularTrendsData(results, granularity),
     [results, granularity],
   );
 
-  const totalDisputes = trendsData[trendsData.length - 1]?.cumulativeDisputes ?? 0;
-
   if (results.length === 0) {
     return (
-      <div className="space-y-4">
-        <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
-          &gt; 04 TRENDS · CHARGE × DISPUTE / PERIOD
-        </h1>
-        <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-          <div className="p-10 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
-            NO SIGNAL — INGEST AN INVOICE ON 00 OVERVIEW
-          </div>
+      <div className="space-y-6">
+        <PageHeader title="Trends" sub="Billed against the model and high-priority shipments over time." />
+        <section className="card">
+          <EmptyState onGoToOverview={() => onNavigate('overview')}>
+            No invoice scored yet. Trends appear here once one is.
+          </EmptyState>
         </section>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      {/* Page title + granularity toggle */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
-            &gt; 04 TRENDS · CHARGE × DISPUTE / PERIOD
-          </h1>
-          <p className="text-[10px] tracking-widest uppercase mt-1" style={{ color: 'var(--muted)' }}>
-            N.SHIPMENTS {results.length.toLocaleString()} · GRAIN {granularity.toUpperCase()}
-            {totalDisputes > 0 && (
-              <span className="ml-2" style={{ color: 'var(--crit)' }}>
-                · DISPUTES {totalDisputes}
-              </span>
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-[10px] tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
-          <label htmlFor="granularity-toggle">GROUP.BY</label>
-          <select
-            id="granularity-toggle"
-            value={granularity}
-            onChange={(e) => setGranularity(e.target.value as TrendsGranularity)}
-            className="border px-2 py-1 text-[10px] tracking-widest uppercase cursor-pointer"
-            style={{ background: 'var(--panel)', borderColor: 'var(--border-2)', color: 'var(--text)' }}
-          >
-            <option value="day">DAY</option>
-            <option value="week">WEEK</option>
-          </select>
-        </div>
-      </div>
-
+    <div className="space-y-6">
+      <PageHeader
+        title="Trends"
+        sub={<span className="tnum">{results.length.toLocaleString()} shipments, grouped by {granularity}</span>}
+        actions={
+          <div className="seg" role="group" aria-label="Group by">
+            {GRAINS.map((g) => (
+              <button key={g.id} type="button" aria-pressed={granularity === g.id} onClick={() => setChoice(g.id)}>
+                {g.label}
+              </button>
+            ))}
+          </div>
+        }
+      />
       <TrendsChart data={trendsData} />
     </div>
   );

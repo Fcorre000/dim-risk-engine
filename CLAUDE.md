@@ -107,9 +107,10 @@ Schema of truth is `docs/api_contract.md` (vendored from the ML repo).
 - `onDemoLoad` in `App.tsx` hits `GET /demo/stream` on the backend (no file upload)
 - `/demo/stream` in `api/main.py` reads `api/sample_invoice.csv` server-side and streams
   NDJSON in the same format as `/analyze/stream`
-- `api/sample_invoice.csv` contains 1,618 shipments from **April 2024 only** — a single
-  month of real invoice data, matching the expected user workflow of uploading one month
-  at a time. UTF-8 (no BOM), LF line endings, committed to git via `.gitignore` exception
+- `api/sample_invoice.csv` contains 1,977 shipments stratified across **Mar 2024 – Mar 2026**
+  (25 months), not a single month — so the Overview chart opens on monthly grouping
+  for the demo, while a real one-month upload opens on daily (`pickGranularity`).
+  UTF-8 (no BOM), LF line endings, committed to git via `.gitignore` exception
   `!api/sample_invoice.csv`
 - Do NOT use a client-side fetch-blob-File approach for the demo — it breaks on the
   deployed static site because the CSV must be served by the backend, not the frontend
@@ -153,8 +154,8 @@ Schema of truth is `docs/api_contract.md` (vendored from the ML repo).
 ## Actual vs Predicted scatter plot (Overview page)
 - Replaced the old monthly bar chart with a per-shipment **ScatterChart** (Recharts)
 - X = predicted charge, Y = actual charge; diagonal y=x reference line = perfect prediction
-- Dots color-coded by `review_priority`: `var(--crit)` = high, `var(--warn)` = medium,
-  `var(--accent)` = low (palette-aware, not hard-coded hex)
+- Dots color-coded by `review_priority`: `var(--over)` = high, `var(--warn)` = medium,
+  `var(--faint)` = low (palette-aware, not hard-coded hex). Both axes log scale.
 - Props: receives `ShipmentResult[]` directly (not aggregated `MonthlyDataPoint[]`)
 - `computeMonthlyData()` in `lib/metrics.ts` still exists but is no longer called
   by OverviewPage — kept for potential future use
@@ -172,8 +173,8 @@ Schema of truth is `docs/api_contract.md` (vendored from the ML repo).
   - Returns `TrendsDataPoint[]` — reuses `.month` field for period label
   - Sorts by raw ISO date internally before mapping to display labels
 - `TrendsPage` defaults to `'day'` with a select dropdown toggle ("Group by: Day / Week")
-- `TrendsChart` adjusts for denser data: minWidth `data.length * 28` (was `* 80`),
-  XAxis labels rotated -45 degrees when >10 data points
+- `TrendsGranularity` also has `'month'`; `pickGranularity()` chooses the default from
+  the upload's date span. X labels are never rotated — the tick interval thins them.
 - Old `computeTrendsData()` (monthly) still exists but is no longer called
 
 ## Copy-to-clipboard functionality
@@ -200,8 +201,8 @@ Schema of truth is `docs/api_contract.md` (vendored from the ML repo).
   `Recipient Country/Territory` (excluding "US"). Recovers 99.4% of rows.
 - **Map library**: `react-simple-maps` (v3, ~30KB) with CDN-loaded TopoJSON
   (`us-atlas@3/states-10m.json`). `geoAlbersUsa` projection handles Alaska/Hawaii inset.
-- **Color scale**: sequential blue — `#1f2937` (no data) → `#1e3a5f` (low) → `#3b82f6` (high),
-  with gradient legend bar
+- **Color scale**: sequential ramp from `--raised` to `--billed` (resolved with
+  `useCssVars`), with a legend bar; a "Busiest states" list sits beside the map
 - **Tooltip**: fixed-position card (top-right of map) on hover — shows state name,
   shipment count, total billed, gap, anomaly count
 - **Summary table**: below the map, all states ranked by shipment count with columns:
@@ -213,35 +214,47 @@ Schema of truth is `docs/api_contract.md` (vendored from the ML repo).
   map-pin icon
 - Old `BySkuPage.tsx` deleted; `computeSkuData()` in metrics.ts kept (harmless)
 
-## Ops-console redesign (2026-04-18)
-- Full visual overhaul from the `design_handoff_dimrisk_ops/` spec. **All business logic preserved** — same API, streaming, KPI math, types. Only the skin changed.
-- **Design language:** fixed-width terminal aesthetic. JetBrains Mono for body/mono, Space Grotesk for KPI values. Sharp corners everywhere (no `border-radius`). Typographic marks instead of icons: ▲ (crit), ■ (warn), · (ok), ◐ (warming), ⇣ (download). Slug-style headers like `> TBL.01 · DISPUTE_QUEUE.PEEK` and `> FIG.02 · ACTUAL × PREDICTED`.
-- **Never use Tailwind color utilities** (`text-red-500`, `bg-gray-800`, etc.) in new components — every color comes from CSS custom properties so themes apply automatically.
+## Monex-style redesign (2026-10)
+Replaced the 2026-04 ops-console skin (monospace, `> TBL.01` slugs, 00–05 nav
+numbers, unicode glyph icons, 4 skins). Direction: taste-skill's
+"true-black-flat" app style, after a monex finance-dashboard reference.
+**All business logic preserved**: same API, streaming, KPI math, CSV export,
+copy-to-clipboard, row_index selection keys.
 
-### Theming system (4 skins × 2 modes = 8 palettes)
-- `frontend/src/theme/variants.ts` defines `VARIANTS` — four skins (`console`, `bloomberg` aka "Terminal", `slate`, `stripe` aka "Graphite") each with `dark` and `light` palettes. Palette keys: `--bg`, `--panel`, `--border`, `--border-2`, `--text`, `--muted`, `--accent`, `--warn`, `--crit`, `--header`, `--row-hov`, `--glow`.
-- `frontend/src/theme/ThemeContext.tsx` exposes `ThemeProvider`, `useTheme()`, `usePaletteStyle()`. Selected variant + mode persist in `localStorage` (`dre-variant`, `dre-theme`). Defaults: `console` + `dark`. On change, the provider writes each palette key onto `document.body.style` so global backgrounds/scrollbars pick up the palette.
-- `App.tsx` wraps the tree in `<ThemeProvider>`. Skin picker + dark/light toggle live in `components/layout/OpsHeader.tsx`.
-- **Styling rule:** components read colors via CSS vars — either `style={{ color: 'var(--accent)' }}` inline, or Tailwind arbitrary-value classes like `bg-[var(--panel)]`. The choropleth (`ByStatePage`) interpolates fill between `--panel` and `--accent` via a `mixColors(hexToRgb(panel), hexToRgb(accent), 0.2 + t*0.8)` helper so it stays palette-aware.
-
-### Layout components
-- `components/layout/OpsHeader.tsx`: top strip with session ID, UTC clock, invoice ID, skin picker, theme toggle. Clock ticks every second via `setInterval`.
-- `components/layout/MainLayout.tsx`: wraps Sidebar + main content, passes `uploadState` through for header KPIs.
-- `components/layout/Sidebar.tsx`: nav labels use ops-console slugs (`00 OVERVIEW`, `01 ANOMALIES`, `02 BY_ZONE`, `03 BY_STATE`, `04 TRENDS`, `05 EXPORT`). Nav item type is `PageId`.
-
-### Key component conventions
-- **KPI cards** (`components/kpi/KpiCard.tsx`): tagged `REG.000`…`REG.003`, Space Grotesk for the big number, muted meta line below. Four cards on Overview in a 4-col grid.
-- **Tables**: `> TBL.NN · <NAME>.<MODE>` header with right-aligned meta (`ORDER.BY ... DESC`, row count, `N / TOTAL FLAGGED`). Rows `border-b` only (no vertical lines). Flag cells render `review_priority` as `▲ HIGH 96%` / `■ MEDIUM 73%` / `· LOW` — the % chip is the calibrated `anomaly_score`. Selected row uses `background: var(--row-hov)` and shows a sticky copy bar beneath.
-- **Charts**: pure SVG for scatter (`ActualVsPredictedChart` — W=440 H=380 P=34) and zone radar (`ZoneChart`). Recharts retained only for `TrendsChart`. Legend dots use the same flag marks.
-- **Buttons**: border + transparent bg + `var(--accent)` text with `textShadow: var(--glow)` on console-dark primary actions (e.g. `⇣ DOWNLOAD .CSV`). Hover flips to `background: var(--row-hov)`.
-- **Empty state copy**: always `NO SIGNAL — INGEST AN INVOICE ON 00 OVERVIEW` (or `INGEST AN INVOICE` on Overview itself).
-- **Warming banner** (`App.tsx`): `◐ SERVER.WARMING · AWAIT ~60s · DEMO WILL AUTOSTART` — fixed `top-0 z-50`, amber warn color.
-
-### Data-model notes tied to the redesign
-- `ShipmentResult` added `row_index: number` (backend-assigned, monotonic) and changed `tracking_number` to `string | null`. Real invoices have missing or duplicate tracking numbers.
-- **Selection keys:** all tables and the scatter plot use `row_index` as the React `key` and as selection state (`selectedRowIndex: number | null`). Never use `tracking_number` — it can be null or duplicate.
-- **Null-safe display:** `row.tracking_number ?? <span className="italic opacity-60">no tracking #</span>`. CSV export uses `r.tracking_number ?? ''`.
-- `AnomaliesPage` added pagination: `PAGE_SIZE_OPTIONS = [50, 100, 250, 500]`, `page` state, `pagedRows` slice, clamped page effect on filter/sort change.
+- **Type:** Manrope everywhere (tabular figures on); JetBrains Mono only for
+  tracking numbers (`.mono`). Page title 30px/400, lead figure 40px, KPIs 24–28px.
+- **Tokens:** all colours are CSS custom properties in `src/index.css` under
+  `:root[data-theme='dark'|'light']`. Never use Tailwind colour utilities.
+  Hue budget, one subject = one hue: `--billed` (blue, what FedEx charged),
+  `--over` (pink, billed above the 95% ceiling / high priority), `--warn`
+  (amber, medium), `--ok` (green, pills only). Everything else is neutral.
+- **Theme:** `theme/ThemeContext.tsx` — dark/light only, persisted in
+  `localStorage['dre-theme']`, applied as `data-theme` on `<html>`.
+  `useCssVars([...])` resolves tokens for JS (the state map ramp).
+- **Shell:** `components/layout/TopBar.tsx` (mark, nav: Overview · Disputes ·
+  Zones · States · Trends · Export, high-priority count on Disputes, current
+  file, theme toggle) inside `MainLayout.tsx`; footer carries model stats.
+  Pages receive `onNavigate` for empty-state / "View all" links.
+- **Component classes** (index.css `@layer components`): `.card` (20px radius,
+  no shadow), `.btn-primary` (inverted pill), `.btn-ghost`, `.btn-quiet`,
+  `.pill-over|warn|ok|neutral`, `.seg` (segmented control), `.table`
+  (sentence-case grey headers, row rules, `.num` right-aligned), `.float`
+  (the only shadowed surface: tooltips/popovers).
+- **Icons:** authored SVG set in `components/ui/Icon.tsx`. No unicode glyphs.
+- **Overview:** title row (finding sentence + file meta, upload buttons) →
+  hero card (`PeriodChart`: billed per period above zero, over-ceiling $ below,
+  hatched bars, selected period filled, auto day/week/month via
+  `pickGranularity`) with a totals rail (Recoverable leads) → Review queue /
+  Which checks fired / Where the money is (`ZoneRing`) → scatter + dispute
+  queue peek (sorted by $ over ceiling, 7 rows, View all).
+- **Signature element:** `components/ui/IntervalStrip.tsx` — the bill against
+  the model's 95% band, per row; far-out bills pin to the end with a break mark.
+- **Scatter** (`ActualVsPredictedChart`) is log–log ($3 floor) and fills its
+  card height; dots by `review_priority` (pink/amber/grey).
+- **Trends:** Recharts, straight lines, no rotated labels (4–8 ticks),
+  day/week/month segmented control.
+- **Streaming:** `StreamingKpis` gained `billedTotal` / `predictedTotal` so the
+  hero totals tick with the other KPIs.
 
 ## Source data reference
 The real FedEx invoice data is `2years.csv` (root dir, 57,600 rows, Apr 2024 – Apr 2026).
@@ -288,8 +301,9 @@ before writing any inference code.
 Backend:  cd api && uvicorn main:app --reload --port 8000
 Frontend: cd frontend && npm run dev
 
-## Skills
-When building any React component or UI, read and follow:
-.claude/skills/ui-ux-pro-max/.claude/skills/ui-ux-pro-max/SKILL.md
-
-Apply these design rules to every component in frontend/src/
+## Design rules
+The 2026-10 redesign followed taste-skill (`Leonxlnx/taste-skill`, app-screens
+rules) and impeccable (`pbakaus/impeccable`, Operate mode). Short form for new UI:
+colour on data not chrome; KPIs are type, not tiles; no gradients, glows,
+eyebrow labels, index numbers, or monospace outside IDs; numbers right-aligned
+in tabular figures; every block has an empty state that keeps its frame.

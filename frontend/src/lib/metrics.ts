@@ -338,7 +338,7 @@ export function computeTrendsData(results: ShipmentResult[]): TrendsDataPoint[] 
   });
 }
 
-export type TrendsGranularity = 'day' | 'week';
+export type TrendsGranularity = 'day' | 'week' | 'month';
 
 /**
  * Compact day label from "YYYY-MM-DD" → "Apr 14".
@@ -389,7 +389,7 @@ export function computeGranularTrendsData(
   results: ShipmentResult[],
   granularity: TrendsGranularity,
 ): TrendsDataPoint[] {
-  const keyFn = granularity === 'day' ? getDayKey : getWeekKey;
+  const keyFn = granularity === 'day' ? getDayKey : granularity === 'week' ? getWeekKey : getMonthKey;
 
   // Use a sortable raw date as map key, store display label alongside
   const buckets: Record<string, {
@@ -404,9 +404,11 @@ export function computeGranularTrendsData(
     const label = keyFn(r.shipment_date) ?? 'Unknown';
     const rawDate = r.shipment_date ?? '9999-99-99';
 
-    // For weeks, use the Monday as sort key
+    // For weeks, use the Monday as sort key; for months, the 1st
     let sortDate = rawDate;
-    if (granularity === 'week' && r.shipment_date) {
+    if (granularity === 'month' && r.shipment_date) {
+      sortDate = r.shipment_date.slice(0, 7) + '-01';
+    } else if (granularity === 'week' && r.shipment_date) {
       const d = new Date(r.shipment_date + 'T00:00:00');
       const day = d.getDay();
       const diff = day === 0 ? 6 : day - 1;
@@ -444,4 +446,143 @@ export function computeGranularTrendsData(
       cumulativeDisputes: cumulative,
     };
   });
+}
+
+/**
+ * Pick a time grain that gives a readable number of buckets for the span the
+ * upload covers: a one-month invoice reads by day, a quarter by week, and a
+ * multi-month export (like the demo sample) by month.
+ */
+export function pickGranularity(results: ShipmentResult[]): TrendsGranularity {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const r of results) {
+    if (!r.shipment_date) continue;
+    const t = dateSortKey(r.shipment_date);
+    if (!isFinite(t)) continue;
+    if (t < min) min = t;
+    if (t > max) max = t;
+  }
+  if (!isFinite(min)) return 'day';
+  const spanDays = (max - min) / 86_400_000;
+  if (spanDays <= 45) return 'day';
+  if (spanDays <= 190) return 'week';
+  return 'month';
+}
+
+export interface PeriodPoint {
+  key: string;          // sortable ISO date of the bucket start
+  label: string;        // "Apr 14", "Apr 8–14", "Jun 2024"
+  billed: number;       // sum of actual_net_charge
+  predicted: number;    // sum of charge_predicted
+  overCeiling: number;  // sum of max(0, actual - upper_95) over flagged rows — same as the recoverable KPI
+  flagged: number;      // review_priority !== 'low'
+  high: number;         // review_priority === 'high'
+  count: number;
+}
+
+/**
+ * Per-period billed total and the part of it billed above the model's 95%
+ * ceiling on flagged rows. Rows without a shipment date are left out (they
+ * still count in every total elsewhere).
+ */
+export function computePeriodSeries(results: ShipmentResult[], granularity: TrendsGranularity): PeriodPoint[] {
+  const keyFn = granularity === 'day' ? getDayKey : granularity === 'week' ? getWeekKey : getMonthKey;
+  const buckets: Record<string, PeriodPoint> = {};
+
+  for (const r of results) {
+    if (!r.shipment_date) continue;
+    const label = keyFn(r.shipment_date);
+    if (!label) continue;
+    let key = r.shipment_date;
+    if (granularity === 'month') {
+      key = r.shipment_date.slice(0, 7) + '-01';
+    } else if (granularity === 'week') {
+      const d = new Date(r.shipment_date + 'T00:00:00');
+      const day = d.getDay();
+      d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+      key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+    const b = buckets[key] ?? (buckets[key] = {
+      key, label, billed: 0, predicted: 0, overCeiling: 0, flagged: 0, high: 0, count: 0,
+    });
+    b.count += 1;
+    b.billed += r.actual_net_charge;
+    b.predicted += r.charge_predicted;
+    if (r.review_priority !== 'low') {
+      b.flagged += 1;
+      b.overCeiling += Math.max(0, r.actual_net_charge - r.charge_upper_95);
+    }
+    if (r.review_priority === 'high') b.high += 1;
+  }
+
+  return Object.values(buckets)
+    .sort((a, b) => dateSortKey(a.key) - dateSortKey(b.key))
+    .map((b) => ({
+      ...b,
+      billed: parseFloat(b.billed.toFixed(2)),
+      predicted: parseFloat(b.predicted.toFixed(2)),
+      overCeiling: parseFloat(b.overCeiling.toFixed(2)),
+    }));
+}
+
+export interface SignalCounts {
+  flagged: number;          // rows with review_priority !== 'low'
+  high: number;
+  medium: number;
+  clear: number;            // review_priority === 'low'
+  dimDisagrees: number;     // dim_disagrees_with_fedex === true (flagged rows)
+  outsideInterval: number;  // charge_outside_interval === true (flagged rows)
+  anomaly: number;          // anomaly_flagged === true (flagged rows)
+}
+
+/** Which of the three audit signals fired, counted over the flagged rows. */
+export function computeSignalCounts(results: ShipmentResult[]): SignalCounts {
+  const c: SignalCounts = { flagged: 0, high: 0, medium: 0, clear: 0, dimDisagrees: 0, outsideInterval: 0, anomaly: 0 };
+  for (const r of results) {
+    if (r.review_priority === 'low') { c.clear += 1; continue; }
+    c.flagged += 1;
+    if (r.review_priority === 'high') c.high += 1; else c.medium += 1;
+    if (r.dim_disagrees_with_fedex === true) c.dimDisagrees += 1;
+    if (r.charge_outside_interval === true) c.outsideInterval += 1;
+    if (r.anomaly_flagged === true) c.anomaly += 1;
+  }
+  return c;
+}
+
+export interface ZoneShare {
+  zone: string;
+  recoverable: number;   // sum of max(0, actual - upper_95) over flagged rows in the zone
+  flagged: number;
+}
+
+/** Recoverable dollars per pricing zone, largest first. Zones with $0 are dropped. */
+export function computeRecoverableByZone(results: ShipmentResult[]): ZoneShare[] {
+  const m: Record<string, ZoneShare> = {};
+  for (const r of results) {
+    if (r.review_priority === 'low') continue;
+    const z = m[r.zone] ?? (m[r.zone] = { zone: r.zone, recoverable: 0, flagged: 0 });
+    z.flagged += 1;
+    z.recoverable += Math.max(0, r.actual_net_charge - r.charge_upper_95);
+  }
+  return Object.values(m)
+    .map((z) => ({ ...z, recoverable: parseFloat(z.recoverable.toFixed(2)) }))
+    .filter((z) => z.recoverable > 0)
+    .sort((a, b) => b.recoverable - a.recoverable);
+}
+
+/** "$51.8k" style for axis ticks and dense labels. */
+export function formatDollarsShort(value: number): string {
+  const a = Math.abs(value);
+  const sign = value < 0 ? '-' : '';
+  if (a >= 1_000_000) return `${sign}$${(a / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (a >= 1_000) return `${sign}$${(a / 1_000).toFixed(a >= 10_000 ? 0 : 1).replace(/\.0$/, '')}k`;
+  return `${sign}$${Math.round(a)}`;
+}
+
+/** Zone display name: "05" → "Zone 5", "Other" stays "Other". */
+export function zoneName(zone: string): string {
+  const n = parseInt(zone, 10);
+  if (zone === 'Other') return 'Non-standard zone';
+  return isNaN(n) ? zone : `Zone ${n}`;
 }

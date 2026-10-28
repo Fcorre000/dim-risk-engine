@@ -1,58 +1,49 @@
 import { createContext, useContext, useEffect, useState, useMemo } from 'react';
-import type { ReactNode, CSSProperties } from 'react';
-import type { VariantId, ThemeMode } from './variants';
-import { VARIANTS, getPalette } from './variants';
+import type { ReactNode } from 'react';
+
+export type ThemeMode = 'dark' | 'light';
 
 interface ThemeContextValue {
-  variant: VariantId;
   theme: ThemeMode;
-  setVariant: (v: VariantId) => void;
   setTheme: (t: ThemeMode) => void;
   toggleTheme: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-function readStored<T extends string>(key: string, fallback: T, allowed: readonly T[]): T {
+function readStoredTheme(): ThemeMode {
   try {
-    const v = localStorage.getItem(key);
-    if (v && (allowed as readonly string[]).includes(v)) return v as T;
-  } catch { /* noop */ }
-  return fallback;
+    const v = localStorage.getItem('dre-theme');
+    if (v === 'dark' || v === 'light') return v;
+  } catch { /* storage blocked — fall through to default */ }
+  return 'dark';
+}
+
+// Tokens live in index.css under :root[data-theme=…]. The attribute is set
+// before React re-renders so useCssVars reads the new palette, not the old one.
+function applyTheme(t: ThemeMode) {
+  document.documentElement.dataset.theme = t;
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [variant, setVariant] = useState<VariantId>(() =>
-    readStored<VariantId>('dre-variant', 'console', Object.keys(VARIANTS) as VariantId[]),
-  );
-  const [theme, setTheme] = useState<ThemeMode>(() =>
-    readStored<ThemeMode>('dre-theme', 'dark', ['dark', 'light']),
-  );
-
-  useEffect(() => {
-    try { localStorage.setItem('dre-variant', variant); } catch { /* noop */ }
-  }, [variant]);
+  const [theme, setThemeState] = useState<ThemeMode>(() => {
+    const t = readStoredTheme();
+    applyTheme(t);
+    return t;
+  });
 
   useEffect(() => {
     try { localStorage.setItem('dre-theme', theme); } catch { /* noop */ }
   }, [theme]);
 
-  // Also apply to body so scrollbars and <body> background pick up the palette
-  useEffect(() => {
-    const palette = getPalette(variant, theme);
-    const root = document.body;
-    for (const [k, v] of Object.entries(palette)) {
-      root.style.setProperty(k, v);
-    }
-  }, [variant, theme]);
-
-  const value = useMemo<ThemeContextValue>(() => ({
-    variant,
-    theme,
-    setVariant,
-    setTheme,
-    toggleTheme: () => setTheme(t => (t === 'dark' ? 'light' : 'dark')),
-  }), [variant, theme]);
+  const value = useMemo<ThemeContextValue>(() => {
+    const setTheme = (t: ThemeMode) => { applyTheme(t); setThemeState(t); };
+    return {
+      theme,
+      setTheme,
+      toggleTheme: () => setTheme(theme === 'dark' ? 'light' : 'dark'),
+    };
+  }, [theme]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
@@ -63,7 +54,19 @@ export function useTheme() {
   return ctx;
 }
 
-export function usePaletteStyle(): CSSProperties {
-  const { variant, theme } = useTheme();
-  return getPalette(variant, theme) as unknown as CSSProperties;
+/**
+ * Resolve CSS custom properties to their current values. Used where a colour
+ * has to be computed in JS (the choropleth interpolates between two tokens).
+ * Re-reads whenever the theme changes.
+ */
+export function useCssVars<T extends string>(names: readonly T[]): Record<T, string> {
+  const { theme } = useTheme();
+  const key = names.join('|');
+  return useMemo(() => {
+    const style = getComputedStyle(document.documentElement);
+    const out = {} as Record<T, string>;
+    for (const n of names) out[n] = style.getPropertyValue(n).trim();
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme, key]);
 }

@@ -1,13 +1,63 @@
 import { useRef, useState, useCallback } from 'react';
 import type { UploadState } from '../../types/api';
+import Icon from '../ui/Icon';
 
 interface UploadZoneProps {
   uploadState: UploadState;
   onUpload: (file: File) => Promise<void>;
   onDemoLoad: () => Promise<void>;
+  /**
+   * `full` is the first-run drop target that fills the Overview before any
+   * invoice is loaded; `compact` is the pair of buttons in the title row once
+   * data is on screen (still accepts a dropped file).
+   */
+  variant?: 'full' | 'compact';
 }
 
-export default function UploadZone({ uploadState, onUpload, onDemoLoad }: UploadZoneProps) {
+function StreamProgress({ uploadState }: { uploadState: UploadState }) {
+  const { totalCount, shipmentCount } = uploadState;
+  const indeterminate = totalCount == null;
+  const pct = indeterminate
+    ? null
+    : shipmentCount != null
+    ? Math.min(Math.round((shipmentCount / totalCount) * 100), 99)
+    : 0;
+
+  return (
+    <div className="w-full">
+      <div
+        role="progressbar"
+        aria-label="Analyzing invoice"
+        aria-valuenow={pct ?? undefined}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-busy="true"
+        className="progress-track"
+      >
+        {indeterminate ? (
+          <div className="progress-indet" />
+        ) : (
+          <div className="progress-fill" style={{ width: `${pct}%` }} />
+        )}
+      </div>
+      <div className="mt-2 flex items-baseline justify-between gap-3 text-[13px]">
+        <p className="truncate" style={{ color: 'var(--muted)' }}>
+          Scoring {uploadState.filename ?? 'invoice'}
+        </p>
+        {shipmentCount != null && (
+          <p className="tnum flex-none" style={{ color: 'var(--ink)' }}>
+            {totalCount != null
+              ? `${shipmentCount.toLocaleString()} of ${totalCount.toLocaleString()}`
+              : shipmentCount.toLocaleString()}{' '}
+            <span style={{ color: 'var(--faint)' }}>rows</span>
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function UploadZone({ uploadState, onUpload, onDemoLoad, variant = 'full' }: UploadZoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const isUploading = uploadState.status === 'uploading';
@@ -22,7 +72,7 @@ export default function UploadZone({ uploadState, onUpload, onDemoLoad }: Upload
   );
 
   const handleDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
+    (e: React.DragEvent<HTMLElement>) => {
       e.preventDefault();
       setIsDragOver(false);
       if (isUploading) return;
@@ -33,7 +83,7 @@ export default function UploadZone({ uploadState, onUpload, onDemoLoad }: Upload
   );
 
   const handleDragOver = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
+    (e: React.DragEvent<HTMLElement>) => {
       e.preventDefault();
       if (!isUploading) setIsDragOver(true);
     },
@@ -42,7 +92,7 @@ export default function UploadZone({ uploadState, onUpload, onDemoLoad }: Upload
 
   const handleDragLeave = useCallback(() => setIsDragOver(false), []);
 
-  const handleClick = useCallback(() => {
+  const openPicker = useCallback(() => {
     if (!isUploading) inputRef.current?.click();
   }, [isUploading]);
 
@@ -63,144 +113,113 @@ export default function UploadZone({ uploadState, onUpload, onDemoLoad }: Upload
     [isUploading, onDemoLoad],
   );
 
-  return (
-    <section
-      className="border"
-      style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}
-    >
+  const fileInput = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept=".xlsx,.csv"
+      className="sr-only"
+      onChange={handleInputChange}
+      aria-hidden="true"
+      tabIndex={-1}
+    />
+  );
+
+  if (variant === 'compact') {
+    return (
       <div
-        className="px-4 py-2 border-b flex items-center justify-between text-[10px] tracking-widest"
-        style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        className="flex flex-wrap items-center gap-2 rounded-full transition-colors duration-150"
+        style={{ outline: isDragOver ? '2px dashed var(--billed)' : 'none', outlineOffset: 4 }}
       >
-        <span>&gt; INGEST.SOURCE · DROP OR BROWSE</span>
-        <span>.xlsx · .csv · 50 MB max</span>
-      </div>
-
-      <div className="p-4 space-y-3">
-        <div
-          role="button"
-          tabIndex={isUploading ? -1 : 0}
+        {fileInput}
+        <button type="button" onClick={handleDemoClick} disabled={isUploading} className="btn btn-quiet">
+          Try sample invoice
+        </button>
+        <button
+          type="button"
+          onClick={openPicker}
+          disabled={isUploading}
+          className="btn btn-primary"
           aria-label="Upload invoice file — drag and drop or click to select"
-          aria-disabled={isUploading}
-          onClick={handleClick}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') handleClick();
-          }}
-          className="relative border border-dashed p-10 text-center transition-colors duration-150 cursor-pointer"
-          style={{
-            borderColor: isDragOver ? 'var(--accent)' : 'var(--border-2)',
-            background: isDragOver ? 'var(--row-hov)' : 'transparent',
-            opacity: isUploading ? 0.7 : 1,
-            cursor: isUploading ? 'not-allowed' : 'pointer',
-          }}
         >
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".xlsx,.csv"
-            className="sr-only"
-            onChange={handleInputChange}
-            aria-hidden="true"
-            tabIndex={-1}
-          />
+          <Icon name="upload" size={16} />
+          {isDragOver ? 'Drop to analyse' : 'Upload invoice'}
+        </button>
+      </div>
+    );
+  }
 
-          {isUploading ? (
-            <div className="flex flex-col items-center gap-3 w-full">
-              {(() => {
-                const { totalCount, shipmentCount } = uploadState;
-                const indeterminate = totalCount == null;
-                const pct = indeterminate
-                  ? null
-                  : shipmentCount != null
-                  ? Math.min(Math.round((shipmentCount / totalCount) * 100), 99)
-                  : 0;
-
-                return (
-                  <div
-                    role="progressbar"
-                    aria-label="Analyzing invoice"
-                    aria-valuenow={pct ?? undefined}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-busy="true"
-                    className="relative w-full h-1 overflow-hidden"
-                    style={{ background: 'var(--border)' }}
-                  >
-                    <div
-                      className="absolute inset-y-0 left-0 overflow-hidden"
-                      style={{
-                        width: indeterminate ? '100%' : `${pct}%`,
-                        background: 'var(--accent)',
-                        boxShadow: 'var(--glow)',
-                        transition: 'width 300ms ease-out',
-                      }}
-                    >
-                      <div
-                        className="absolute inset-0 animate-shimmer"
-                        style={{
-                          background:
-                            'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.35) 50%, transparent 100%)',
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })()}
-              <div className="flex items-baseline justify-between w-full text-[11px]">
-                <p className="tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
-                  &gt; DECODING {uploadState.filename ?? 'stream'}
-                </p>
-                {uploadState.shipmentCount != null && (
-                  <p className="tabular-nums" style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>
-                    {uploadState.totalCount != null
-                      ? `${uploadState.shipmentCount.toLocaleString()} / ${uploadState.totalCount.toLocaleString()}`
-                      : uploadState.shipmentCount.toLocaleString()}{' '}
-                    ROWS
-                  </p>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-2 text-[11px] tracking-widest uppercase" style={{ color: 'var(--text)' }}>
-              <span className="text-[20px] leading-none opacity-70" style={{ color: 'var(--accent)', textShadow: 'var(--glow)' }}>⇣</span>
-              <p>{isDragOver ? 'Release to analyze' : 'Drag & drop invoice'}</p>
-              <p className="text-[10px]" style={{ color: 'var(--muted)' }}>
-                OR CLICK · .xlsx · .csv
-              </p>
-            </div>
-          )}
-
-          {uploadState.status === 'error' && uploadState.errorMessage && (
-            <p role="alert" className="mt-4 text-[11px]" style={{ color: 'var(--crit)' }}>
-              ▲ {uploadState.errorMessage}
+  return (
+    <section className="card card-pad flex flex-col" aria-label="Upload an invoice">
+      <div
+        role="button"
+        tabIndex={isUploading ? -1 : 0}
+        aria-label="Upload invoice file — drag and drop or click to select"
+        aria-disabled={isUploading}
+        onClick={openPicker}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openPicker();
+          }
+        }}
+        className="flex min-h-[260px] flex-1 flex-col justify-between gap-8 rounded-[14px] p-6 transition-colors duration-150 sm:p-8"
+        style={{
+          background: isDragOver ? 'var(--active)' : 'var(--raised)',
+          outline: isDragOver ? '2px dashed var(--billed)' : '1px dashed var(--line-strong)',
+          outlineOffset: -1,
+          cursor: isUploading ? 'progress' : 'pointer',
+        }}
+      >
+        {fileInput}
+        <div className="flex items-start gap-4">
+          <span
+            className="flex h-11 w-11 flex-none items-center justify-center rounded-full"
+            style={{ background: 'var(--surface)', color: 'var(--ink)' }}
+          >
+            <Icon name="upload" size={20} />
+          </span>
+          <div>
+            <h2 className="text-[22px] leading-7 tracking-[-0.01em]" style={{ color: 'var(--ink)' }}>
+              {isDragOver ? 'Release to analyse' : 'Drop a FedEx invoice export'}
+            </h2>
+            <p className="mt-1.5" style={{ color: 'var(--muted)' }}>
+              CSV or XLSX, up to 50 MB. One month per upload reads best.
             </p>
-          )}
+          </div>
         </div>
 
-        {!isUploading && (
-          <div className="flex items-center gap-3 text-[10px] tracking-widest" style={{ color: 'var(--muted)' }}>
-            <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
-            <span>OR</span>
-            <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+        {isUploading ? (
+          <StreamProgress uploadState={uploadState} />
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="btn btn-primary" aria-hidden="true">
+              Choose file
+            </span>
+            <button type="button" onClick={handleDemoClick} className="btn btn-ghost" style={{ background: 'var(--surface)' }}>
+              <Icon name="play" size={14} />
+              Try sample invoice
+            </button>
           </div>
         )}
 
-        {!isUploading && (
-          <button
-            type="button"
-            onClick={handleDemoClick}
-            className="w-full border px-4 py-2 text-[11px] tracking-widest uppercase transition-colors duration-150 cursor-pointer"
-            style={{ borderColor: 'var(--border-2)', background: 'transparent', color: 'var(--text)' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--row-hov)'; e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.textShadow = 'var(--glow)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.textShadow = 'none'; }}
-          >
-            ▶ LOAD 3,000-ROW SAMPLE
-          </button>
+        {uploadState.status === 'error' && uploadState.errorMessage && (
+          <p role="alert" className="flex items-start gap-2 text-[14px]" style={{ color: 'var(--over)' }}>
+            <Icon name="info" size={16} className="mt-0.5 flex-none" />
+            <span>
+              Couldn't analyse {uploadState.filename ?? 'that file'}: {uploadState.errorMessage}
+            </span>
+          </p>
         )}
       </div>
     </section>
   );
 }
+
+export { StreamProgress };

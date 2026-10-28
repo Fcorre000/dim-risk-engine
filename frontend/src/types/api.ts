@@ -33,6 +33,8 @@ export interface StreamingKpis {
   dimFlaggedCount: number;        // count of rows where dim_disagrees_with_fedex === true
   disputeCandidates: number;      // count of rows where review_priority === 'high'
   estRecoverable: number;         // sum of max(0, actual_net_charge - charge_upper_95) over flagged rows
+  billedTotal: number;            // sum of actual_net_charge over every row so far
+  predictedTotal: number;         // sum of charge_predicted over every row so far
 }
 
 export interface UploadState {

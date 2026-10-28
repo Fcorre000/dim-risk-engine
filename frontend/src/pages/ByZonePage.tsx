@@ -1,114 +1,88 @@
-import type { UploadState } from '../types/api';
-import { computeZoneDetails, formatDollars } from '../lib/metrics';
+import { useMemo } from 'react';
+import type { PageId, UploadState } from '../types/api';
+import { computeZoneDetails, formatDollars, zoneName } from '../lib/metrics';
 import ZoneChart from '../components/charts/ZoneChart';
+import PageHeader from '../components/ui/PageHeader';
+import EmptyState from '../components/ui/EmptyState';
 
 interface ByZonePageProps {
   uploadState: UploadState;
+  onNavigate: (page: PageId) => void;
 }
 
-export default function ByZonePage({ uploadState }: ByZonePageProps) {
-  const results = uploadState.results ?? [];
-  const zoneDetails = computeZoneDetails(results);
+export default function ByZonePage({ uploadState, onNavigate }: ByZonePageProps) {
+  const results = useMemo(() => uploadState.results ?? [], [uploadState.results]);
+  const zoneDetails = useMemo(() => computeZoneDetails(results), [results]);
 
   if (results.length === 0) {
     return (
-      <div className="space-y-4">
-        <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
-          &gt; 02 BY.ZONE · DIM.RATE × COST.GAP
-        </h1>
-        <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-          <div className="p-10 text-center text-[11px] tracking-widest" style={{ color: 'var(--muted)' }}>
-            NO SIGNAL — INGEST AN INVOICE ON 00 OVERVIEW
-          </div>
+      <div className="space-y-6">
+        <PageHeader title="Zones" sub="DIM rate and billing gap for each FedEx pricing zone." />
+        <section className="card">
+          <EmptyState onGoToOverview={() => onNavigate('overview')}>
+            No invoice scored yet. Zone totals appear here once one is.
+          </EmptyState>
         </section>
       </div>
     );
   }
 
   const totalGap = zoneDetails.reduce((sum, z) => sum + z.gapTotal, 0);
+  const worst = zoneDetails[0];
 
   return (
-    <div className="space-y-4">
-      {/* Page title */}
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-[11px] tracking-[0.18em] uppercase font-medium" style={{ color: 'var(--muted)' }}>
-          &gt; 02 BY.ZONE · DIM.RATE × COST.GAP
-        </h1>
-        <p className="text-[10px] tracking-widest uppercase" style={{ color: 'var(--muted)' }}>
-          N.ZONES {zoneDetails.length}
-          {totalGap > 0 && (
-            <span className="ml-2" style={{ color: 'var(--crit)' }}>
-              · GAP.TOTAL +{formatDollars(totalGap)}
-            </span>
-          )}
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Zones"
+        sub={
+          <span className="tnum">
+            {zoneDetails.length} zones · billed {totalGap >= 0 ? '+' : ''}{formatDollars(totalGap)} against the model's
+            point predictions
+            {worst && worst.gapTotal > 0 && <>, most of it in {zoneName(worst.zone)}</>}.
+          </span>
+        }
+      />
 
-      {/* Polar radar */}
-      <ZoneChart data={zoneDetails} />
+      <section className="card card-pad" aria-label="Gap by zone">
+        <div className="card-head mb-4">
+          <div>
+            <h2 className="card-title">Billed over the model, by zone</h2>
+            <p className="meta mt-0.5">Actual minus predicted, summed per zone. Hover a row to fill its bar.</p>
+          </div>
+        </div>
+        <ZoneChart data={zoneDetails} />
+      </section>
 
-      {/* Zone summary table */}
-      <section className="border" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-        <div
-          className="px-4 py-2 border-b flex items-center justify-between text-[10px] tracking-widest"
-          style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
-        >
-          <span>&gt; TBL.02 · ZONE_SUMMARY</span>
-          <span>ORDER.BY gap.total DESC</span>
+      <section className="card overflow-hidden" aria-label="Zone summary">
+        <div className="px-[22px] pb-3 pt-[22px]">
+          <h2 className="card-title">Zone summary</h2>
+          <p className="meta mt-0.5">Largest gap first</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-[11.5px] font-jb" role="table" aria-label="Zone cost summary table">
+          <table className="table" aria-label="Zone cost summary table">
             <thead>
-              <tr className="border-b text-[9px] tracking-widest" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
-                <th scope="col" className="px-4 py-2 text-left">ZONE</th>
-                <th scope="col" className="px-4 py-2 text-right">N</th>
-                <th scope="col" className="px-4 py-2 text-right">DIM.RATE</th>
-                <th scope="col" className="px-4 py-2 text-right">HIGH</th>
-                <th scope="col" className="px-4 py-2 text-right">ACT.SUM</th>
-                <th scope="col" className="px-4 py-2 text-right">PRED.SUM</th>
-                <th scope="col" className="px-4 py-2 text-right">GAP.TOTAL</th>
+              <tr>
+                <th scope="col">Zone</th>
+                <th scope="col" className="num">Shipments</th>
+                <th scope="col" className="num">DIM rate</th>
+                <th scope="col" className="num">High priority</th>
+                <th scope="col" className="num">Billed</th>
+                <th scope="col" className="num">Predicted</th>
+                <th scope="col" className="num">Gap</th>
               </tr>
             </thead>
             <tbody>
               {zoneDetails.map((zone) => (
-                <tr
-                  key={zone.zone}
-                  className="border-b transition-colors duration-150"
-                  style={{ borderColor: 'var(--border)' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--row-hov)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                >
-                  <td className="px-4 py-1.5 tabular-nums" style={{ color: 'var(--text)' }}>
-                    Z.{zone.zone}
+                <tr key={zone.zone}>
+                  <td style={{ color: 'var(--ink)' }}>{zoneName(zone.zone)}</td>
+                  <td className="num" style={{ color: 'var(--muted)' }}>{zone.count.toLocaleString()}</td>
+                  <td className="num">{zone.dimRate.toFixed(1)}%</td>
+                  <td className="num" style={{ color: zone.highPriority > 0 ? 'var(--over)' : 'var(--muted)' }}>
+                    {zone.highPriority.toLocaleString()}
                   </td>
-                  <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
-                    {zone.count.toLocaleString()}
-                  </td>
-                  <td
-                    className="px-4 py-1.5 tabular-nums text-right"
-                    style={{
-                      color: zone.dimRate > 50 ? 'var(--crit)' : zone.dimRate > 25 ? 'var(--warn)' : 'var(--accent)',
-                      textShadow: zone.dimRate > 25 ? 'none' : 'var(--glow)',
-                    }}
-                  >
-                    {zone.dimRate}%
-                  </td>
-                  <td
-                    className="px-4 py-1.5 tabular-nums text-right"
-                    style={{ color: zone.highPriority > 0 ? 'var(--crit)' : 'var(--muted)' }}
-                  >
-                    {zone.highPriority}
-                  </td>
-                  <td className="px-4 py-1.5 tabular-nums text-right">
-                    {formatDollars(zone.actualTotal)}
-                  </td>
-                  <td className="px-4 py-1.5 tabular-nums text-right" style={{ color: 'var(--muted)' }}>
-                    {formatDollars(zone.predictedTotal)}
-                  </td>
-                  <td
-                    className="px-4 py-1.5 tabular-nums text-right"
-                    style={{ color: zone.gapTotal > 0 ? 'var(--crit)' : zone.gapTotal < 0 ? 'var(--accent)' : 'var(--muted)' }}
-                  >
+                  <td className="num">{formatDollars(zone.actualTotal)}</td>
+                  <td className="num" style={{ color: 'var(--muted)' }}>{formatDollars(zone.predictedTotal)}</td>
+                  <td className="num" style={{ color: zone.gapTotal > 0 ? 'var(--over)' : 'var(--ink)' }}>
                     {zone.gapTotal >= 0 ? '+' : ''}{formatDollars(zone.gapTotal)}
                   </td>
                 </tr>
