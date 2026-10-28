@@ -145,3 +145,24 @@ def test_run_inference_handles_missing_optional_columns():
     results = run_inference(df)
     assert results[0]["charge_outside_interval"] is None
     assert results[0]["charge_predicted"] > 0
+
+
+def test_predict_batch_matches_predict_shipment():
+    """The batched path (one feature array per chunk) must score every row
+    exactly as the single-row path does — it exists only for speed."""
+    from predict import predict_batch
+
+    a = _example_row()
+    b = {**_example_row(), "Pricing Zone": "Z9", "Service Type": "Unknown",
+         "Recipient Postal Code": "00000", "Dimmed Height (cm)": 0.0}
+    c = {**_example_row(), "Net Charge Billed Currency": None,
+         "Shipment DIM Flag (Y or N)": None, "Invoice Month (yyyymm)": None}
+    rows = [a, b, c]
+    batched = predict_batch(rows)
+    for row, got in zip(rows, batched):
+        want = predict_shipment(row)
+        for key, value in want.items():
+            if isinstance(value, float):
+                assert abs(got[key] - value) < 1e-9, key
+            else:
+                assert got[key] == value, key

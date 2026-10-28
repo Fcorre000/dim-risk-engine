@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { memo, useState, useMemo, useRef, useEffect } from 'react';
 import type { ShipmentResult } from '../../types/api';
 import { formatDollars, zoneName } from '../../lib/metrics';
 import { escapeFormula } from '../../lib/export';
@@ -108,7 +108,7 @@ export function RowCopyBar({ row, onDismiss }: { row: ShipmentResult; onDismiss:
 
 const DEFAULT_PAGE_SIZE = 100;
 
-export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, onViewAll }: AnomalyTableProps) {
+function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, onViewAll }: AnomalyTableProps) {
   const [filterValue, setFilterValue] = useState<FilterValue>('all');
   // Selection is by row_index — tracking_number can be null/duplicate in real data
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
@@ -238,3 +238,5 @@ export default function AnomalyTable({ results, pageSize = DEFAULT_PAGE_SIZE, on
     </section>
   );
 }
+
+export default memo(AnomalyTable);

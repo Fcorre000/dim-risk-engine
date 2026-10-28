@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { PageId, UploadState } from '../../types/api';
 import { useTheme } from '../../theme/ThemeContext';
 import Icon, { Mark } from '../ui/Icon';
@@ -67,10 +68,11 @@ function InvoiceChip({ uploadState }: { uploadState: UploadState }) {
 }
 
 export default function TopBar({ activePage, onNavigate, uploadState }: TopBarProps) {
-  const high =
-    uploadState.streamingKpis?.disputeCandidates ??
-    uploadState.results?.reduce((n, r) => n + (r.review_priority === 'high' ? 1 : 0), 0) ??
-    0;
+  const finalHigh = useMemo(
+    () => uploadState.results?.reduce((n, r) => n + (r.review_priority === 'high' ? 1 : 0), 0) ?? 0,
+    [uploadState.results],
+  );
+  const high = uploadState.streamingKpis?.disputeCandidates ?? finalHigh;
 
   return (
     <header className="card flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 sm:px-5">

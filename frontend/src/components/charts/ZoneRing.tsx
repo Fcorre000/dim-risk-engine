@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { ZoneShare } from '../../lib/metrics';
 import { formatDollars, zoneName } from '../../lib/metrics';
 
@@ -9,7 +10,7 @@ interface ZoneRingProps {
 const STRENGTH = [1, 0.72, 0.5, 0.32];
 
 /** Where the recoverable dollars sit, by pricing zone. */
-export default function ZoneRing({ data }: ZoneRingProps) {
+function ZoneRing({ data }: ZoneRingProps) {
   const total = data.reduce((s, z) => s + z.recoverable, 0);
   const top = data.slice(0, 4);
   const rest = data.slice(4);
@@ -85,3 +86,5 @@ export default function ZoneRing({ data }: ZoneRingProps) {
     </div>
   );
 }
+
+export default memo(ZoneRing);

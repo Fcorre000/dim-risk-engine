@@ -45,8 +45,8 @@ def _load_artifacts():
         feature_cols = json.load(f)
 
     zip_df = pd.read_parquet(ROOT / 'data' / 'zip_lookup.parquet')
-    zip_lookup = {row['zip']: (row['latitude'], row['longitude'])
-                  for _, row in zip_df.iterrows()}
+    # zip() over the columns, not iterrows(): same mapping, ~50x faster to build
+    zip_lookup = dict(zip(zip_df['zip'], zip(zip_df['latitude'], zip_df['longitude'])))
 
     das_path = ROOT / 'data' / 'das_zips.csv'
     if das_path.exists():
@@ -80,13 +80,37 @@ def _clean_zone(z) -> str:
         return 'Other'
 
 
+@lru_cache(maxsize=1)
+def _feature_index() -> dict[str, int]:
+    """Column name → position in the 105-feature vector."""
+    _, _, feature_cols, _, _ = _load_artifacts()
+    return {c: i for i, c in enumerate(feature_cols)}
+
+
+def _finite(v) -> bool:
+    try:
+        return math.isfinite(v)
+    except TypeError:
+        return False
+
+
 def transform_row(row: dict) -> pd.DataFrame:
     """Map a raw shipment dict to the 105-column feature row the v2 models expect.
 
     Mirrors `src/02_preprocessing.py` exactly: same dim divisor, same zone
     cleanup, same one-hot scheme, same NaN→0 fallback.
     """
-    _, _, feature_cols, zip_lookup, das_map = _load_artifacts()
+    _, _, feature_cols, _, _ = _load_artifacts()
+    return pd.DataFrame([feature_vector(row)], columns=feature_cols)
+
+
+def feature_vector(row: dict) -> list[float]:
+    """`transform_row` without the DataFrame: the 105 features as a list in
+    `feature_columns.json` order. Batch callers stack these into one array —
+    building a one-row DataFrame per shipment was ~65% of inference time.
+    """
+    _, _, _, zip_lookup, das_map = _load_artifacts()
+    index = _feature_index()
 
     # Numeric base
     weight = float(row.get('Original Weight (Pounds)') or 0)
@@ -98,7 +122,7 @@ def transform_row(row: dict) -> pd.DataFrame:
     volume = h * w * l
     dim_calc = volume / DIM_DIVISOR
     dim_ratio = (dim_calc / weight) if weight > 0 else 0.0
-    if not np.isfinite(dim_ratio):
+    if not math.isfinite(dim_ratio):
         dim_ratio = 0.0
     has_dims = int(h > 0 and w > 0 and l > 0)
     billable = max(weight, dim_calc)
@@ -116,17 +140,17 @@ def transform_row(row: dict) -> pd.DataFrame:
     s_lat, s_lon = zip_lookup.get(s_zip, (np.nan, np.nan))
     r_lat, r_lon = zip_lookup.get(r_zip, (np.nan, np.nan))
 
-    if all(np.isfinite([s_lat, s_lon, r_lat, r_lon])):
+    if _finite(s_lat) and _finite(s_lon) and _finite(r_lat) and _finite(r_lon):
         miles = _haversine_miles(s_lat, s_lon, r_lat, r_lon)
     else:
         miles = 0.0
-    s_lat = 0.0 if not np.isfinite(s_lat) else s_lat
-    s_lon = 0.0 if not np.isfinite(s_lon) else s_lon
-    r_lat = 0.0 if not np.isfinite(r_lat) else r_lat
-    r_lon = 0.0 if not np.isfinite(r_lon) else r_lon
+    s_lat = 0.0 if not _finite(s_lat) else s_lat
+    s_lon = 0.0 if not _finite(s_lon) else s_lon
+    r_lat = 0.0 if not _finite(r_lat) else r_lat
+    r_lon = 0.0 if not _finite(r_lon) else r_lon
 
-    # Assemble feature dict, all OHE columns default to 0
-    out = {col: 0.0 for col in feature_cols}
+    # Assemble the feature vector; all OHE columns default to 0
+    out = [0.0] * len(index)
     numeric = {
         'Original Weight (Pounds)': weight,
         'Dimmed Height (cm)': h_cm,
@@ -148,17 +172,18 @@ def transform_row(row: dict) -> pd.DataFrame:
         'origin_dest_miles': miles,
     }
     for k, v in numeric.items():
-        if k in out:
-            out[k] = float(v)
+        i = index.get(k)
+        if i is not None:
+            out[i] = float(v)
 
     # One-hot encodings — silently no-op if the trained vocabulary doesn't include
     # the supplied value (matches scikit-learn's behavior on unseen categories)
     def _set_ohe(prefix: str, value):
-        if value is None or (isinstance(value, float) and not np.isfinite(value)):
+        if value is None or (isinstance(value, float) and not math.isfinite(value)):
             return
-        col = f'{prefix}_{value}'
-        if col in out:
-            out[col] = 1.0
+        i = index.get(f'{prefix}_{value}')
+        if i is not None:
+            out[i] = 1.0
 
     _set_ohe('zone_clean',                _clean_zone(row.get('Pricing Zone')))
     _set_ohe('Service Type',              row.get('Service Type'))
@@ -166,7 +191,7 @@ def transform_row(row: dict) -> pd.DataFrame:
     _set_ohe('Recipient State/Province',  row.get('Recipient State/Province'))
     _set_ohe('das_type',                  das_map.get(r_zip, 'NONE'))
 
-    return pd.DataFrame([[out[c] for c in feature_cols]], columns=feature_cols)
+    return out
 
 
 def predict_shipment(row: dict) -> dict:
@@ -275,18 +300,19 @@ def predict_batch(rows: list[dict]) -> list[dict]:
     batch instead of once per row. Used by the streaming `/analyze/stream`
     endpoint where the chunker hands us 1,000 rows at a time.
 
-    The per-row `transform_row` call still happens in Python, which is fine —
-    the bottleneck on a 1,600-row invoice is the model calls (~50 ms batched
-    vs ~3 s per-row).
+    Features are built per row in plain Python (`feature_vector`) and stacked
+    into a single (N, 105) frame — one DataFrame per batch, not per row.
     """
     if not rows:
         return []
 
     clf, reg, feature_cols, _, _ = _load_artifacts()
 
-    # Stack per-row feature DataFrames into one (N, 105) frame
-    X = pd.concat([transform_row(r) for r in rows], axis=0, ignore_index=True)
-    X = X[feature_cols]
+    # One (N, 105) float64 frame for the whole batch
+    X = pd.DataFrame(
+        np.array([feature_vector(r) for r in rows], dtype=np.float64),
+        columns=feature_cols,
+    )
 
     # Classifier — calibrated probabilities; positive class assumed to be label 1
     proba = clf.predict_proba(X)

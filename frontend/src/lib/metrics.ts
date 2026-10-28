@@ -1,5 +1,34 @@
 import type { ShipmentResult } from '../types/api';
 
+/**
+ * Cache an aggregation per results array. Every stream flush and the final
+ * result are fresh arrays that are never mutated afterwards, so identity is a
+ * safe key; pages that remount (Overview after Disputes) reuse the work instead
+ * of re-walking 50k rows. A WeakMap lets old arrays be collected.
+ */
+function memoByResults<A extends (string | number)[], R>(
+  fn: (results: ShipmentResult[], ...args: A) => R,
+): (results: ShipmentResult[], ...args: A) => R {
+  const cache = new WeakMap<ShipmentResult[], Map<string, R>>();
+  return (results, ...args) => {
+    let byArgs = cache.get(results);
+    if (!byArgs) { byArgs = new Map(); cache.set(results, byArgs); }
+    const key = args.join('|');
+    let value = byArgs.get(key);
+    if (value === undefined) { value = fn(results, ...args); byArgs.set(key, value); }
+    return value;
+  };
+}
+
+// One formatter for every dollar figure; constructing Intl.NumberFormat per
+// call was the costliest part of rendering a table cell.
+const USD = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 export interface KpiData {
   totalShipments: number;
   dimFlaggedCount: number;      // shipments where dim_probability > 0.5
@@ -19,7 +48,7 @@ export interface ZoneDataPoint {
  * Compute KPI summary values from a list of shipment results.
  * Returns zero values for empty array.
  */
-export function computeKpis(results: ShipmentResult[]): KpiData {
+function computeKpisUncached(results: ShipmentResult[]): KpiData {
   if (results.length === 0) {
     return {
       totalShipments: 0,
@@ -85,12 +114,7 @@ export function computeZoneData(results: ShipmentResult[]): ZoneDataPoint[] {
  * Examples: 1234.56 → "$1,234.56" | 0 → "$0.00"
  */
 export function formatDollars(value: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
+  return USD.format(value);
 }
 
 export interface MonthlyDataPoint {
@@ -167,7 +191,7 @@ export interface ZoneDetailPoint {
  * Extends computeZoneData with financial summary per zone.
  * Returns array sorted by gapTotal descending (highest overcharge zone first).
  */
-export function computeZoneDetails(results: ShipmentResult[]): ZoneDetailPoint[] {
+function computeZoneDetailsUncached(results: ShipmentResult[]): ZoneDetailPoint[] {
   if (results.length === 0) return [];
 
   const zoneMap: Record<string, {
@@ -266,7 +290,7 @@ export interface StateDataPoint {
   highPriority: number;
 }
 
-export function computeStateData(results: ShipmentResult[]): StateDataPoint[] {
+function computeStateDataUncached(results: ShipmentResult[]): StateDataPoint[] {
   if (results.length === 0) return [];
 
   const stateMap: Record<string, {
@@ -385,7 +409,7 @@ function dateSortKey(dateStr: string): number {
  * Aggregate shipment results into daily or weekly trend buckets.
  * Same output shape as computeTrendsData — reuses TrendsDataPoint.month for period label.
  */
-export function computeGranularTrendsData(
+function computeGranularTrendsDataUncached(
   results: ShipmentResult[],
   granularity: TrendsGranularity,
 ): TrendsDataPoint[] {
@@ -453,7 +477,7 @@ export function computeGranularTrendsData(
  * upload covers: a one-month invoice reads by day, a quarter by week, and a
  * multi-month export (like the demo sample) by month.
  */
-export function pickGranularity(results: ShipmentResult[]): TrendsGranularity {
+function pickGranularityUncached(results: ShipmentResult[]): TrendsGranularity {
   let min = Infinity;
   let max = -Infinity;
   for (const r of results) {
@@ -486,7 +510,7 @@ export interface PeriodPoint {
  * ceiling on flagged rows. Rows without a shipment date are left out (they
  * still count in every total elsewhere).
  */
-export function computePeriodSeries(results: ShipmentResult[], granularity: TrendsGranularity): PeriodPoint[] {
+function computePeriodSeriesUncached(results: ShipmentResult[], granularity: TrendsGranularity): PeriodPoint[] {
   const keyFn = granularity === 'day' ? getDayKey : granularity === 'week' ? getWeekKey : getMonthKey;
   const buckets: Record<string, PeriodPoint> = {};
 
@@ -537,7 +561,7 @@ export interface SignalCounts {
 }
 
 /** Which of the three audit signals fired, counted over the flagged rows. */
-export function computeSignalCounts(results: ShipmentResult[]): SignalCounts {
+function computeSignalCountsUncached(results: ShipmentResult[]): SignalCounts {
   const c: SignalCounts = { flagged: 0, high: 0, medium: 0, clear: 0, dimDisagrees: 0, outsideInterval: 0, anomaly: 0 };
   for (const r of results) {
     if (r.review_priority === 'low') { c.clear += 1; continue; }
@@ -557,7 +581,7 @@ export interface ZoneShare {
 }
 
 /** Recoverable dollars per pricing zone, largest first. Zones with $0 are dropped. */
-export function computeRecoverableByZone(results: ShipmentResult[]): ZoneShare[] {
+function computeRecoverableByZoneUncached(results: ShipmentResult[]): ZoneShare[] {
   const m: Record<string, ZoneShare> = {};
   for (const r of results) {
     if (r.review_priority === 'low') continue;
@@ -586,3 +610,12 @@ export function zoneName(zone: string): string {
   if (zone === 'Other') return 'Non-standard zone';
   return isNaN(n) ? zone : `Zone ${n}`;
 }
+
+export const computeKpis = memoByResults(computeKpisUncached);
+export const computeZoneDetails = memoByResults(computeZoneDetailsUncached);
+export const computeStateData = memoByResults(computeStateDataUncached);
+export const computeGranularTrendsData = memoByResults(computeGranularTrendsDataUncached);
+export const pickGranularity = memoByResults(pickGranularityUncached);
+export const computePeriodSeries = memoByResults(computePeriodSeriesUncached);
+export const computeSignalCounts = memoByResults(computeSignalCountsUncached);
+export const computeRecoverableByZone = memoByResults(computeRecoverableByZoneUncached);

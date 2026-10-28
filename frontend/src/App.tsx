@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { BASE_URL } from './api';
 import type { PageId, ShipmentResult, UploadState } from './types/api';
@@ -22,6 +22,15 @@ const INITIAL_UPLOAD_STATE: UploadState = {
   streamingKpis: null,
 };
 
+// Repaint the progress bar and KPI counters at most this often. The old rule
+// (every 50 rows) meant ~1,000 forced synchronous renders for a 50k-row file,
+// each followed by a >=4 ms setTimeout yield — seconds of pure overhead.
+const PAINT_INTERVAL_MS = 100;
+// Charts re-aggregate the whole results array on every flush, so flush it
+// ~20 times per file instead of every 500 rows (100 times at 50k).
+const RESULT_FLUSHES_PER_FILE = 20;
+const MIN_RESULT_FLUSH_ROWS = 500;
+
 // Reads an NDJSON streaming response and drives uploadState updates.
 // Shared by both the file-upload path and the demo path.
 async function consumeNdjsonStream(
@@ -42,6 +51,12 @@ async function consumeNdjsonStream(
   let estRecoverable = 0;
   let billedTotal = 0;
   let predictedTotal = 0;
+
+  let lastPaint = performance.now();
+  let paintedLen = 0;
+  let resultsFlushedLen = 0;
+  const resultFlushRows = () =>
+    Math.max(MIN_RESULT_FLUSH_ROWS, Math.ceil((totalCount ?? 0) / RESULT_FLUSHES_PER_FILE));
 
   while (true) {
     const { done, value } = await reader.read();
@@ -88,8 +103,9 @@ async function consumeNdjsonStream(
 
         const len = allResults.length;
 
-        // Every 50 rows: update progress bar + streaming KPIs (cheap — just numbers)
-        if (len % 50 === 0) {
+        // Check the clock every 50 rows; repaint KPIs + progress at most every
+        // PAINT_INTERVAL_MS (cheap — just numbers)
+        if (len % 50 === 0 && performance.now() - lastPaint >= PAINT_INTERVAL_MS) {
           const kpis = {
             dimFlaggedCount,
             disputeCandidates,
@@ -97,8 +113,9 @@ async function consumeNdjsonStream(
             billedTotal: parseFloat(billedTotal.toFixed(2)),
             predictedTotal: parseFloat(predictedTotal.toFixed(2)),
           };
-          // Flush full results array every 500 rows for charts; KPIs update every 50
-          const flushResults = len % 500 === 0;
+          // Flush the full results array for charts only every resultFlushRows()
+          const flushResults = len - resultsFlushedLen >= resultFlushRows();
+          if (flushResults) resultsFlushedLen = len;
           // flushSync forces React to commit to DOM synchronously — without it,
           // React 18's automatic batching can defer the render past our yield point
           flushSync(() => {
@@ -112,13 +129,15 @@ async function consumeNdjsonStream(
 
           // Yield to browser so it can paint the committed DOM update
           await new Promise(resolve => setTimeout(resolve, 0));
+          paintedLen = len;
+          lastPaint = performance.now();
         }
       } catch { /* skip malformed lines */ }
     }
   }
 
-  // Flush tail rows past the last 50-row boundary
-  if (allResults.length % 50 !== 0) {
+  // Flush tail rows painted since the last throttled update
+  if (allResults.length !== paintedLen) {
     flushSync(() => {
       setUploadState(prev => ({
         ...prev,
@@ -266,10 +285,10 @@ export default function App() {
     }
   };
 
-  const navigate = (page: PageId) => {
+  const navigate = useCallback((page: PageId) => {
     setActivePage(page);
     window.scrollTo({ top: 0 });
-  };
+  }, []);
 
   const renderPage = () => {
     switch (activePage) {

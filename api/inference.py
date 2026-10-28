@@ -23,6 +23,10 @@ _REQUIRED_RAW_KEYS = [
 ]
 
 
+_DATE_COLS = ('Shipment Date (mm/dd/yyyy)', 'Shipment Date')
+_INVOICE_MONTH_COLS = ('Invoice Month (yyyymm)', 'Invoice Month')
+
+
 def _safe_float(v, default: float = 0.0) -> float:
     try:
         f = float(v)
@@ -31,24 +35,41 @@ def _safe_float(v, default: float = 0.0) -> float:
     return f if pd.notna(f) else default
 
 
-def _invoice_month_from_row(row: pd.Series) -> int | None:
+def _chunk_shipment_dates(df: pd.DataFrame) -> list:
+    """Parse each row's shipment date once per chunk instead of once per row.
+
+    Same rule as before: take the first date column that holds a parseable
+    value. `format='mixed'` infers each value's format on its own, which is
+    what calling `pd.to_datetime` on a single value did — a column-level
+    format guess could misread a row written differently from the first.
+    """
+    out: list = [None] * len(df)
+    for col in _DATE_COLS:
+        if col not in df.columns:
+            continue
+        raw = df[col]
+        parsed = pd.to_datetime(raw, errors='coerce', format='mixed')
+        for i, (r, ts) in enumerate(zip(raw, parsed)):
+            if out[i] is None and pd.notna(r) and pd.notna(ts):
+                out[i] = ts
+    return out
+
+
+def _invoice_month_from_row(row: dict, ship_ts=None) -> int | None:
     """Recover the `Invoice Month (yyyymm)` int from whichever column the export carries."""
-    for col in ('Invoice Month (yyyymm)', 'Invoice Month'):
-        if col in row.index and pd.notna(row[col]):
+    for col in _INVOICE_MONTH_COLS:
+        if col in row and pd.notna(row[col]):
             try:
                 return int(float(row[col]))
             except (TypeError, ValueError):
                 pass
-    for col in ('Shipment Date (mm/dd/yyyy)', 'Shipment Date'):
-        if col in row.index and pd.notna(row[col]):
-            ts = pd.to_datetime(row[col], errors='coerce')
-            if pd.notna(ts):
-                return int(ts.year * 100 + ts.month)
+    if ship_ts is not None:
+        return int(ship_ts.year * 100 + ship_ts.month)
     return None
 
 
-def _build_raw_dict(row: pd.Series) -> dict:
-    """Translate one DataFrame row into the raw dict shape predict_batch expects."""
+def _build_raw_dict(row: dict, state: str | None, ship_ts=None) -> dict:
+    """Translate one invoice row into the raw dict shape predict_batch expects."""
     return {
         'Original Weight (Pounds)': _safe_float(row.get('Original Weight (Pounds)')),
         'Dimmed Height (cm)': _safe_float(row.get('Dimmed Height (cm)')),
@@ -59,15 +80,15 @@ def _build_raw_dict(row: pd.Series) -> dict:
         'Pay Type': row.get('Pay Type'),
         'Shipper Postal Code': row.get('Shipper Postal Code', ''),
         'Recipient Postal Code': row.get('Recipient Postal Code', ''),
-        'Recipient State/Province': _extract_state_from_row(row),
-        'Invoice Month (yyyymm)': _invoice_month_from_row(row),
+        'Recipient State/Province': state,
+        'Invoice Month (yyyymm)': _invoice_month_from_row(row, ship_ts),
         # Optional audit-comparison fields — None when absent
         'Shipment DIM Flag (Y or N)': row.get('Shipment DIM Flag (Y or N)'),
         'Net Charge Billed Currency': _safe_float(row.get('Net Charge Billed Currency'), default=None) if pd.notna(row.get('Net Charge Billed Currency')) else None,
     }
 
 
-def _extract_state_from_row(row: pd.Series) -> str | None:
+def _extract_state_from_row(row: dict) -> str | None:
     """Recipient state with column-shift fallback.
 
     FedEx exports sometimes shift address→city→state→country, putting the city
@@ -88,15 +109,6 @@ def _extract_state_from_row(row: pd.Series) -> str | None:
     return None
 
 
-def _extract_shipment_date(row: pd.Series) -> str | None:
-    for col in ('Shipment Date (mm/dd/yyyy)', 'Shipment Date'):
-        if col in row.index and pd.notna(row[col]):
-            ts = pd.to_datetime(row[col], errors='coerce')
-            if pd.notna(ts):
-                return ts.strftime('%Y-%m-%d')
-    return None
-
-
 def run_inference(df: pd.DataFrame, start_index: int = 0) -> list[dict]:
     """Score a chunk of parsed invoice rows and return per-row result dicts.
 
@@ -114,13 +126,19 @@ def run_inference(df: pd.DataFrame, start_index: int = 0) -> list[dict]:
     if len(df) == 0:
         return []
 
-    raw_rows = [_build_raw_dict(df.iloc[i]) for i in range(len(df))]
+    # Plain dicts, built once per chunk: df.iloc[i] constructs a Series per
+    # access and was called twice per row.
+    records = df.to_dict('records')
+    dates = _chunk_shipment_dates(df)
+    states = [_extract_state_from_row(r) for r in records]
+
+    raw_rows = [_build_raw_dict(r, states[i], dates[i]) for i, r in enumerate(records)]
     predictions = predict_batch(raw_rows)
 
     results: list[dict] = []
-    for i in range(len(df)):
-        row = df.iloc[i]
+    for i, row in enumerate(records):
         p = predictions[i]
+        ts = dates[i]
 
         # Tracking number can be missing in real FedEx exports — keep as None
         # rather than serializing NaN as the string "nan", which would (a) display
@@ -139,8 +157,8 @@ def run_inference(df: pd.DataFrame, start_index: int = 0) -> list[dict]:
             'dim_width': round(_safe_float(row.get('Dimmed Width (cm)')), 1),
             'dim_height': round(_safe_float(row.get('Dimmed Height (cm)')), 1),
             'zone': clean_zone(row.get('Pricing Zone')),
-            'shipment_date': _extract_shipment_date(row),
-            'recipient_state': _extract_state_from_row(row),
+            'shipment_date': ts.strftime('%Y-%m-%d') if ts is not None else None,
+            'recipient_state': states[i],
 
             # Model outputs (v2 contract — see docs/api_contract.md)
             'dim_probability': round(p['dim_probability'], 4),
